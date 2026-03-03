@@ -1,80 +1,253 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get Neckass Headlines running in under 2 minutes
 ---
 
-## Get started in three steps
+## Get Started in 2 Minutes
 
-Get your documentation site running locally and make your first customization.
+Neckass Headlines is a static web app with **zero dependencies** for runtime. Follow these steps to start generating headlines.
 
-### Step 1: Set up your local environment
+<Steps>
+  <Step title="Clone the repository">
+    Clone the Neckass Headlines repository to your local machine:
+
+    ```bash
+    git clone https://github.com/yourusername/neckass-headlines.git
+    cd neckass-headlines
+    ```
+  </Step>
+
+  <Step title="Open index.html in your browser">
+    The fastest way to run the app is to open the HTML file directly:
+
+    ```bash
+    # On macOS:
+    open index.html
+
+    # On Linux:
+    xdg-open index.html
+
+    # On Windows:
+    start index.html
+    ```
+
+    Or simply double-click `index.html` in your file manager.
+
+    <Note>
+      Most modern browsers support opening local files directly. If your browser or tooling blocks `file://` URLs, proceed to the next step.
+    </Note>
+  </Step>
+
+  <Step title="(Optional) Run a local server">
+    If your browser restricts `file://` URLs or you prefer an HTTP server:
+
+    ```bash
+    python -m http.server 8001 --directory .
+    ```
+
+    Then open your browser and navigate to:
+
+    ```
+    http://127.0.0.1:8001/
+    ```
+
+    <Info>
+      Python 3 is required for this command. Alternatively, use any other static file server like `npx http-server` or `php -S localhost:8001`.
+    </Info>
+  </Step>
+
+  <Step title="Start shuffling headlines">
+    Once the page loads:
+
+    1. Click the **Shuffle** button to generate your first headline
+    2. Use **Previous** to navigate back through headlines you've seen
+    3. Use the keyboard shortcuts:
+       - **Arrow Right** or **Arrow Down**: Shuffle
+       - **Arrow Left** or **Arrow Up**: Previous
+
+    Your session history is automatically saved in localStorage, so you can close and reopen the page without losing your progress.
+  </Step>
+</Steps>
+
+## Using the App
+
+Once you have the app running, explore these core features:
+
+### Generate Headlines
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+  <Accordion title="Shuffle Button">
+    Click **Shuffle** to cycle through featured headlines. Headlines are randomly selected from a curated catalog, ensuring no repeats until you've seen all available options.
+
+    The shuffle button uses the accent color and shows a shuffle icon. It's disabled while loading to prevent multiple rapid clicks.
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+
+  <Accordion title="Previous Button">
+    Click **Previous** to move backward through your local session history. The button is disabled when you're at the beginning of your history (fewer than 2 headlines viewed).
+  </Accordion>
+
+  <Accordion title="Keyboard Navigation">
+    - **Arrow Right** or **Arrow Down**: Shuffle
+    - **Arrow Left** or **Arrow Up**: Previous
+
+    Keyboard navigation is automatically disabled when you're focused on editable elements (inputs, textareas, buttons).
   </Accordion>
 </AccordionGroup>
 
-### Step 2: Deploy your changes
+### Copy & Share
 
 <AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  <Accordion title="Copy to Clipboard">
+    Click **Copy headline** in the command rail to copy the current headline to your clipboard. The app uses the Clipboard API when available and falls back to a legacy method for older browsers.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    Status messages appear below the button:
+    - ✓ "Headline copied to clipboard!"
+    - ✗ "No headline available to copy."
+    - ✗ "Copy failed. Please try again."
+  </Accordion>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
+  <Accordion title="Share to Social Media">
+    Use the share links in the command rail to share headlines directly:
+    - **Twitter**: Pre-filled tweet with headline text and URL
+    - **Facebook**: Share dialog with headline and link
+    - **Reddit**: Submit link with headline as title
+    - **Native Share**: Use your device's share sheet (mobile-friendly)
+
+    Share URLs automatically update when you shuffle to a new headline and include query parameters that encode the current headline state.
+  </Accordion>
+
+  <Accordion title="Export Mock Front Page">
+    Generate a stylized PNG image of your headline as a mock front page:
+
+    1. **Download mock front page**: Saves a PNG file to your device
+    2. **Copy mock front page**: Copies the image to your clipboard (if supported) so you can paste directly into other apps
+
+    The mock front page includes:
+    - Masthead ("Neckass Daily")
+    - Current date
+    - Your headline in large display type
+    - Published timestamp
+    - Footer branding
+
+    <Tip>
+      If clipboard image copy isn't supported in your browser, the app automatically falls back to downloading the PNG instead.
+    </Tip>
   </Accordion>
 </AccordionGroup>
 
-### Step 3: Go live
+## Session Features
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+Neckass Headlines tracks your activity locally:
 
-## Next steps
+- **Headlines Viewed**: Counter in the command rail shows unique headlines you've seen
+- **Recent Headlines**: List of headlines from your current session
+- **Daily Streak**: Encouragement to return daily, tracked in localStorage
+- **Shuffle Streak**: Milestone badges for shuffle counts (3, 5, 8, 12 shuffles)
 
-Now that you have your docs running, explore these key features:
+All session data is stored in your browser's localStorage and never sent to a server.
+
+## Filter Headlines (Advanced)
+
+You can filter headlines using URL parameters:
+
+```
+http://127.0.0.1:8001/?section=Local&source=curated
+http://127.0.0.1:8001/?q=election&section=Politics
+```
+
+Supported parameters:
+- `headline`: specific headline text
+- `section`: filter by section (e.g., Local, Politics, Sports)
+- `q`: search query
+- `source`: `curated` or `generated`
+- `panel`: UI panel state
+- `layout`: layout preference
+
+Click **Clear filters** to reset to all headlines.
+
+## Optional: Run Smoke Tests
+
+Neckass Headlines includes optional Playwright smoke tests to validate key flows:
+
+```bash
+# Install dev dependencies (Playwright)
+npm install
+
+# Run tests
+npm run test:smoke
+
+# Run tests in headed mode (watch browser)
+npm run test:smoke:headed
+```
+
+<Warning>
+  The smoke tests are **optional** and only required for contributors validating changes. The app runs perfectly without installing Node.js or npm.
+</Warning>
+
+## Agentic Interface (Advanced)
+
+If you're building browser automation or using an agentic LLM runtime, you can call headline actions programmatically via `window.Neckass.agent`:
+
+```js
+// Get current state
+const state = await window.Neckass.agent.call('get_state');
+console.log(state.currentHeadline);
+
+// Shuffle to next headline
+const next = await window.Neckass.agent.call('shuffle');
+
+// Go to previous headline
+const previous = await window.Neckass.agent.call('previous');
+
+// Apply filters
+await window.Neckass.agent.call('set_filters', {
+  section: 'Politics',
+  source: 'curated'
+});
+
+// List all available headlines
+const headlines = await window.Neckass.agent.call('list_headlines');
+```
+
+Available tools:
+- `get_state`: Returns current app state
+- `shuffle`: Generate next headline
+- `previous`: Navigate to previous headline
+- `generate`: Trigger on-device generation
+- `set_filters`: Apply section/source/query filters
+- `clear_filters`: Reset all filters
+- `select_headline`: Jump to specific headline by index
+- `list_headlines`: Get all available headlines
+
+## Next Steps
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card
+    title="Features Guide"
+    icon="sparkles"
+    href="/features/headline-generation"
+  >
+    Explore headline generation, filters, and export features
+  </Card>
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api/overview"
+  >
+    Explore the agentic interface and programmatic controls
+  </Card>
+  <Card
+    title="Contributing Guide"
+    icon="hand-holding-heart"
+    href="/development/contributing"
+  >
+    Learn how to contribute to the project
+  </Card>
+  <Card
+    title="Architecture"
+    icon="sitemap"
+    href="/architecture/overview"
+  >
+    Deep dive into the static-first design and module structure
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

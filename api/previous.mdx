@@ -1,0 +1,285 @@
+---
+title: previous
+description: Navigate backward through the headline history stack
+---
+
+## Overview
+
+The `previous` method navigates to the previously viewed headline in the session history. It moves backward through the navigation stack maintained during the current session.
+
+## Method Signature
+
+```javascript
+await window.Neckass.agent.call('previous')
+```
+
+## Parameters
+
+This method takes no parameters.
+
+## Return Value
+
+Returns a state snapshot object after navigating to the previous headline:
+
+<ResponseField name="index" type="number | null">
+  The previous headline's position in the internal headlines array
+</ResponseField>
+
+<ResponseField name="identifier" type="string | null">
+  A stable identifier for the previous headline
+</ResponseField>
+
+<ResponseField name="headline" type="string">
+  The previous headline text
+</ResponseField>
+
+<ResponseField name="url" type="string | null">
+  The canonical URL for the previous headline
+</ResponseField>
+
+<ResponseField name="filters" type="object">
+  Active filter settings (unchanged)
+</ResponseField>
+
+<ResponseField name="poolSize" type="number">
+  Number of headlines matching current filters
+</ResponseField>
+
+<ResponseField name="totalHeadlines" type="number">
+  Total number of headlines available
+</ResponseField>
+
+<ResponseField name="generatorAvailable" type="boolean">
+  Whether the tiny model generator is available
+</ResponseField>
+
+## Behavior
+
+### Navigation Stack
+
+The previous method operates on a navigation history stack:
+
+- Each shuffle or headline selection adds an entry to the stack
+- Previous navigates backward and removes the current entry
+- Stack is persisted to `localStorage` across page reloads
+- Stack respects current filters (filtered headlines only)
+
+### Availability
+
+The previous method can navigate backward when:
+- The navigation stack contains at least 2 entries
+- The app is not currently loading a headline
+
+If these conditions aren't met, the method still completes but doesn't change the current headline.
+
+### UI Updates
+
+- Updates the headline display
+- Updates URL to match previous headline
+- Updates social share links
+- Updates browser history (via `history.pushState`)
+- Does not remove the entry from `uniqueHeadlines` counter
+
+## Usage Examples
+
+### Basic Previous Navigation
+
+```javascript
+// Shuffle forward a few times
+await window.Neckass.agent.call('shuffle');
+await window.Neckass.agent.call('shuffle');
+await window.Neckass.agent.call('shuffle');
+
+// Go back to second headline
+const result = await window.Neckass.agent.call('previous');
+console.log(`Went back to: ${result.headline}`);
+```
+
+### Navigate Backward Multiple Steps
+
+```javascript
+// Go back 3 steps
+for (let i = 0; i < 3; i++) {
+  const result = await window.Neckass.agent.call('previous');
+  console.log(`Step ${i + 1}: ${result.headline}`);
+}
+```
+
+### Check if Previous is Available
+
+```javascript
+const state = await window.Neckass.agent.call('get_state');
+
+// Note: Stack length isn't exposed in snapshot, but you can track it
+// Previous is only effective if stack has 2+ items
+await window.Neckass.agent.call('previous');
+const newState = await window.Neckass.agent.call('get_state');
+
+if (state.identifier === newState.identifier) {
+  console.log('Previous had no effect - at start of history');
+} else {
+  console.log('Successfully navigated to previous headline');
+}
+```
+
+### Alternate Between Headlines
+
+```javascript
+const first = await window.Neckass.agent.call('shuffle');
+const second = await window.Neckass.agent.call('shuffle');
+
+// Go back
+const back = await window.Neckass.agent.call('previous');
+console.log(back.identifier === first.identifier); // true
+
+// Shuffle forward again
+const forward = await window.Neckass.agent.call('shuffle');
+// Will be a new random headline (not necessarily 'second')
+```
+
+### Track Navigation Direction
+
+```javascript
+let history = [];
+
+// Build history
+for (let i = 0; i < 5; i++) {
+  const result = await window.Neckass.agent.call('shuffle');
+  history.push(result.identifier);
+}
+
+console.log('Forward history:', history);
+
+// Navigate backward
+for (let i = 0; i < 3; i++) {
+  const result = await window.Neckass.agent.call('previous');
+  console.log(`Went back to: ${result.identifier}`);
+  console.log(`Matches history[${history.length - 2 - i}]: ${result.identifier === history[history.length - 2 - i]}`);
+}
+```
+
+### Combine with Filters
+
+```javascript
+// Set filter
+await window.Neckass.agent.call('set_filters', { section: 'local' });
+
+// Shuffle through local headlines
+await window.Neckass.agent.call('shuffle');
+await window.Neckass.agent.call('shuffle');
+
+// Previous works within filtered context
+const result = await window.Neckass.agent.call('previous');
+console.log(`Previous local headline: ${result.headline}`);
+```
+
+## Implementation Details
+
+The method calls `app.handlePrevious()` internally:
+
+```javascript
+async previous() {
+    app.handlePrevious();
+    return app.getAgentSnapshot();
+}
+```
+
+The `handlePrevious()` method:
+1. Checks navigation stack length
+2. Removes current entry from stack
+3. Retrieves previous index from stack
+4. Renders previous headline
+5. Updates URL and browser history
+
+Source: `modules/agent-interface.js:17-20`, `modules/app.js:251-273`
+
+### Stack Management
+
+```javascript
+handlePrevious() {
+    if (this.state.isLoading) {
+        return;
+    }
+    if (this.state.navigationStack.length < 2) {
+        return; // Nothing to go back to
+    }
+    
+    this.state.navigationStack.pop(); // Remove current
+    const previousIndex = this.state.navigationStack[this.state.navigationStack.length - 1];
+    this.renderHeadline(previousIndex, { pushToStack: false });
+}
+```
+
+## State Persistence
+
+The navigation stack is persisted to `localStorage`:
+
+```javascript
+localStorage.setItem('navigationStack', JSON.stringify(stack));
+```
+
+### Cross-Session Behavior
+
+- Stack persists across page reloads
+- Stack is sanitized on app initialization
+- Invalid indices are removed from stack
+- Stack respects current `totalHeadlines` count
+
+## Navigation Stack Limits
+
+The navigation stack has practical limits:
+
+- No hard size limit enforced by the app
+- Limited by `localStorage` quota (typically 5-10 MB)
+- Older browsers may have smaller limits
+- Stack is cleared when filters change significantly
+
+## Error Handling
+
+The previous method is fault-tolerant:
+
+```javascript
+const result = await window.Neckass.agent.call('previous');
+// Always returns a valid state snapshot
+// If previous is unavailable, returns current state unchanged
+```
+
+### Edge Cases
+
+- **Empty stack**: Returns current state, no change
+- **Stack with 1 item**: Returns current state, no change
+- **Loading in progress**: Returns current state, no change
+- **Invalid previous index**: Falls back safely to current headline
+
+## Browser History Integration
+
+Previous navigation integrates with browser history:
+
+- Each previous call updates `window.history`
+- Browser back button mirrors previous navigation
+- Forward button re-shuffles (doesn't replay exact history)
+- URL parameters updated to match previous headline
+
+## Performance Notes
+
+- Previous navigation is synchronous (no generation)
+- No network requests
+- Minimal DOM updates
+- Safe to call in rapid succession
+
+## Related Methods
+
+<CardGroup cols={2}>
+  <Card title="shuffle" icon="shuffle" href="/api/shuffle">
+    Generate or select a new random headline
+  </Card>
+  <Card title="get_state" icon="circle-info" href="/api/get-state">
+    Check current position in navigation
+  </Card>
+  <Card title="select_headline" icon="hand-pointer" href="/api/select-headline">
+    Jump to a specific headline directly
+  </Card>
+  <Card title="list_headlines" icon="list" href="/api/list-headlines">
+    View available headlines in the pool
+  </Card>
+</CardGroup>

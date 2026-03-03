@@ -1,0 +1,325 @@
+---
+title: generate
+description: Force generation of a new headline using the tiny model generator
+---
+
+## Overview
+
+The `generate` method explicitly invokes the tiny model headline generator to create a new headline. Unlike `shuffle`, which may return curated headlines based on filter settings, `generate` always attempts to create a new headline using the generator.
+
+## Method Signature
+
+```javascript
+await window.Neckass.agent.call('generate')
+```
+
+## Parameters
+
+This method takes no parameters.
+
+## Return Value
+
+Returns a state snapshot object after generating a new headline:
+
+<ResponseField name="index" type="number | null">
+  The new headline's position in the internal headlines array
+</ResponseField>
+
+<ResponseField name="identifier" type="string | null">
+  A stable identifier for the generated headline (format: "generated-N")
+</ResponseField>
+
+<ResponseField name="headline" type="string">
+  The newly generated headline text
+</ResponseField>
+
+<ResponseField name="url" type="string | null">
+  The canonical URL for the new headline with query parameters
+</ResponseField>
+
+<ResponseField name="filters" type="object">
+  Active filter settings (unchanged)
+</ResponseField>
+
+<ResponseField name="poolSize" type="number">
+  Number of headlines matching current filters
+</ResponseField>
+
+<ResponseField name="totalHeadlines" type="number">
+  Total number of headlines available (incremented by 1 after successful generation)
+</ResponseField>
+
+<ResponseField name="generatorAvailable" type="boolean">
+  Whether the tiny model generator is available
+</ResponseField>
+
+## Behavior
+
+### Generator Operation
+
+The generate method:
+
+1. Checks if the tiny model generator is available
+2. Invokes `tinyLlmClient.generateHeadline()` with current context
+3. Creates a headline using template slots and phrase pools
+4. Applies simulated latency (280-720ms with jitter)
+5. Adds the new headline to the headlines array
+6. Falls back to curated shuffle if generation fails or times out
+
+### Generation Context
+
+The generator considers active filters:
+
+- **Section filter**: Influences phrase pool selection
+- **Query filter**: Used as soft relevance hint for template selection
+- **Exclude recent**: Avoids duplicating recently shown headlines
+
+### Fallback Behavior
+
+If the generator is unavailable or times out:
+- Falls back to curated headline shuffle
+- Returns a curated headline from the catalog
+- Does not throw an error
+
+## Usage Examples
+
+### Basic Generation
+
+```javascript
+const result = await window.Neckass.agent.call('generate');
+console.log(`Generated: ${result.headline}`);
+console.log(`Identifier: ${result.identifier}`);
+// Identifier will be "generated-N" format
+```
+
+### Generate Multiple Headlines
+
+```javascript
+const generated = [];
+
+for (let i = 0; i < 5; i++) {
+  const result = await window.Neckass.agent.call('generate');
+  if (result.identifier.startsWith('generated-')) {
+    generated.push(result.headline);
+  }
+}
+
+console.log(`Generated ${generated.length} new headlines:`);
+generated.forEach((h, i) => console.log(`${i + 1}. ${h}`));
+```
+
+### Generate with Section Context
+
+```javascript
+// Set section to influence generation
+await window.Neckass.agent.call('set_filters', { section: 'sports' });
+
+const result = await window.Neckass.agent.call('generate');
+console.log(`Generated sports headline: ${result.headline}`);
+```
+
+### Generate with Query Context
+
+```javascript
+// Set query to guide generation
+await window.Neckass.agent.call('set_filters', { query: 'cat' });
+
+const result = await window.Neckass.agent.call('generate');
+if (result.headline.toLowerCase().includes('cat')) {
+  console.log('Generated headline includes query term');
+}
+```
+
+### Check Generator Availability
+
+```javascript
+const state = await window.Neckass.agent.call('get_state');
+
+if (!state.generatorAvailable) {
+  console.log('Generator unavailable, generate will fall back to curated');
+} else {
+  const result = await window.Neckass.agent.call('generate');
+  console.log(`Generated: ${result.headline}`);
+}
+```
+
+### Track Total Headlines Growth
+
+```javascript
+const before = await window.Neckass.agent.call('get_state');
+console.log(`Headlines before: ${before.totalHeadlines}`);
+
+const result = await window.Neckass.agent.call('generate');
+console.log(`Headlines after: ${result.totalHeadlines}`);
+
+if (result.totalHeadlines > before.totalHeadlines) {
+  console.log('Successfully added a new generated headline');
+}
+```
+
+### Compare Generate vs Shuffle
+
+```javascript
+// Force curated shuffle
+await window.Neckass.agent.call('set_filters', { source: 'curated' });
+const shuffled = await window.Neckass.agent.call('shuffle');
+console.log(`Shuffled: ${shuffled.identifier}`);
+// Will start with "curated-"
+
+// Force generation
+const generated = await window.Neckass.agent.call('generate');
+console.log(`Generated: ${generated.identifier}`);
+// Will start with "generated-" (unless fallback)
+```
+
+### Measure Generation Time
+
+```javascript
+const start = performance.now();
+const result = await window.Neckass.agent.call('generate');
+const elapsed = performance.now() - start;
+
+console.log(`Generation took ${elapsed.toFixed(0)}ms`);
+console.log(`Generated: ${result.headline}`);
+// Typical range: 280-720ms
+```
+
+## Implementation Details
+
+The method calls `app.handleGenerate()` internally:
+
+```javascript
+async generate() {
+    await app.handleGenerate();
+    return app.getAgentSnapshot();
+}
+```
+
+Source: `modules/agent-interface.js:21-24`
+
+### Generation Pipeline
+
+The tiny model generator (`llm.js`) follows this pipeline:
+
+1. **Context assembly**: Build context from active filters
+2. **Candidate synthesis**: Assemble 12-24 candidates from template slots
+3. **Scoring**: Rank candidates by relevance, novelty, readability
+4. **Selection**: Choose highest-scoring candidate above threshold
+5. **Fallback**: If no candidate meets threshold, retry or fall back
+
+### Generation Parameters
+
+The generator respects these quality guardrails:
+
+- **Length**: 45-110 characters target, 140 character hard cap
+- **Duplicate suppression**: No exact match with last 30 generated headlines
+- **Near-duplicate suppression**: Reject high token overlap with last 10 shown
+- **Tone preservation**: Absurd news voice, avoid harassment terms
+- **Formatting**: Sentence case, no trailing punctuation unless stylistically required
+
+## Performance Considerations
+
+### Generation Latency
+
+- Simulated latency: 280-720ms with jitter
+- Hard timeout: 1800ms (1.8 seconds)
+- Loading state displayed during generation
+- Falls back to curated if timeout exceeded
+
+### Storage Impact
+
+- Generated headlines added to `headlines` array in memory
+- Persisted to `localStorage` under `generatedHeadlines` key
+- No network requests (fully client-side)
+- LocalStorage quota limits (~5-10 MB typical)
+
+### Rate Limiting
+
+- No explicit rate limiting enforced
+- Each generation adds ~100-200 bytes to localStorage
+- Practical limit: hundreds to thousands of generations per session
+
+## Error Handling
+
+The generate method handles errors gracefully:
+
+```javascript
+try {
+  const result = await window.Neckass.agent.call('generate');
+  console.log(result.headline);
+} catch (error) {
+  // Errors are rare - method falls back to curated headlines
+  console.error('Generate failed:', error);
+}
+```
+
+### Automatic Fallbacks
+
+- **Generator unavailable**: Falls back to curated shuffle
+- **Generation timeout**: Falls back to curated shuffle
+- **Generation error**: Falls back to curated shuffle
+- **No candidates meet threshold**: Retry with lower threshold, then fall back
+
+## Generator Availability
+
+The generator may be unavailable due to:
+
+- Browser incompatibility (older browsers without required APIs)
+- LocalStorage unavailable (private browsing modes)
+- Generator initialization failure
+- Resource constraints
+
+Check availability before relying on generation:
+
+```javascript
+const state = await window.Neckass.agent.call('get_state');
+if (state.generatorAvailable) {
+  await window.Neckass.agent.call('generate');
+} else {
+  console.warn('Generator unavailable, using shuffle instead');
+  await window.Neckass.agent.call('shuffle');
+}
+```
+
+## Growth Event Tracking
+
+Generate operations trigger tracking:
+
+```javascript
+app.trackGrowthEvent('generate', {
+  success: boolean,
+  latency: number,
+  fallback: boolean
+});
+```
+
+## State Persistence
+
+Generated headlines persist across sessions:
+
+```javascript
+// Stored in localStorage
+{
+  "generatedHeadlines": [
+    { "text": "...", "section": "local", "generatedAt": "2026-03-03T..." },
+    // ...
+  ]
+}
+```
+
+## Related Methods
+
+<CardGroup cols={2}>
+  <Card title="shuffle" icon="shuffle" href="/api/shuffle">
+    Shuffle with automatic source selection
+  </Card>
+  <Card title="set_filters" icon="filter" href="/api/filters">
+    Configure generation context with filters
+  </Card>
+  <Card title="get_state" icon="circle-info" href="/api/get-state">
+    Check generator availability
+  </Card>
+  <Card title="list_headlines" icon="list" href="/api/list-headlines">
+    View generated and curated headlines
+  </Card>
+</CardGroup>

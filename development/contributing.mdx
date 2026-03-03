@@ -1,0 +1,252 @@
+---
+title: Contributing Guidelines
+description: Learn how to contribute to Neckass Headlines
+---
+
+## Welcome Contributors
+
+Thank you for helping improve Neckass Headlines! This guide covers the contribution workflow and quality expectations.
+
+## Before You Start
+
+<Steps>
+  <Step title="Read the specifications">
+    Read `SPECIFICATIONS.md` first - it's the source of truth for behavior and accessibility requirements.
+  </Step>
+
+  <Step title="Keep changes scoped">
+    Keep changes focused and reviewable. Avoid large, sweeping refactors.
+  </Step>
+
+  <Step title="Preserve compatibility">
+    Maintain no-build, static-host compatibility. The app should work by opening `index.html` directly.
+  </Step>
+</Steps>
+
+## Contribution Workflow
+
+<Steps>
+  <Step title="Fork and clone">
+    Fork the repository and clone it locally:
+    ```bash
+    git clone https://github.com/yourusername/neckass-headlines.git
+    cd neckass-headlines
+    ```
+  </Step>
+
+  <Step title="Create a focused branch">
+    Use descriptive branch names:
+    ```bash
+    git checkout -b feat/add-search-filter
+    git checkout -b fix/share-button-state
+    git checkout -b docs/update-api-reference
+    ```
+    
+    Recommended prefixes: `feat/`, `fix/`, `docs/`, `refactor/`, `test/`
+  </Step>
+
+  <Step title="Implement your change">
+    Make your changes following the [quality expectations](#quality-expectations) below.
+  </Step>
+
+  <Step title="Validate locally">
+    - Manual testing (see `DEVELOPMENT.md` validation checklist)
+    - Run optional smoke tests when relevant:
+      ```bash
+      npm install
+      npm run test:smoke
+      ```
+  </Step>
+
+  <Step title="Update documentation">
+    Update docs and changelog when behavior or workflow changes:
+    - Update relevant `.md` files
+    - Add entry to `CHANGELOG.md` for user-visible changes
+  </Step>
+
+  <Step title="Open a pull request">
+    Submit your PR with:
+    - **What changed** - Clear description of modifications
+    - **Why it changed** - Reasoning and context
+    - **How you validated it** - Testing approach
+    - **Screenshot(s)** - For any visual UI changes
+  </Step>
+</Steps>
+
+## Quality Expectations
+
+### Spec Alignment
+
+`SPECIFICATIONS.md` wins in case of ambiguity. Always check the spec before making behavioral changes.
+
+### Accessibility Preservation
+
+Maintain accessibility features:
+- Focus behavior and keyboard navigation
+- ARIA labels and live-region messaging
+- Semantic HTML structure
+- Focus-visible styles
+
+### String Consistency
+
+Keep copy, share, and export language consistent with existing UX. Don't introduce new terminology without discussion.
+
+### Minimal Surprise
+
+Avoid drive-by refactors unrelated to the PR goal. If you notice something that needs refactoring, open a separate issue or PR.
+
+### No Unnecessary Dependencies
+
+Keep the runtime lightweight. Don't add npm dependencies for straightforward DOM or state work. The app should remain dependency-free at runtime.
+
+## Pull Request Checklist
+
+Before submitting, verify:
+
+- [ ] Change is aligned with `SPECIFICATIONS.md`
+- [ ] Manual validation completed locally
+- [ ] Optional smoke tests run for changed critical flows (if applicable)
+- [ ] Documentation updated where relevant
+- [ ] `CHANGELOG.md` updated for user-visible or process-significant updates
+- [ ] Screenshot(s) included for visible UI changes
+- [ ] No unnecessary dependencies added
+- [ ] Commit messages are clear and focused
+
+## Manual Validation Checklist
+
+Test these flows when making changes:
+
+1. **Core flows**: Shuffle/previous/generate update visible headline
+2. **Actions**: Copy/share/export target the active headline
+3. **State restoration**: URL params and reload restore expected state
+4. **Edge cases**: Empty/filter states communicate clearly and disable invalid actions
+5. **Keyboard nav**: Focus management and focus-visible styles work
+6. **Responsive**: Layout remains usable across small and wide viewports
+
+## Commit Guidance
+
+### Keep Commits Focused
+
+Make atomic commits that represent a single logical change:
+
+```bash
+# Good
+git commit -m "fix: restore focus after shuffle action"
+
+# Avoid
+git commit -m "fix bugs and update styles and refactor modules"
+```
+
+### Use Clear Messages
+
+Use imperative mood ("add", "fix", "update") not past tense:
+
+```bash
+# Good
+git commit -m "docs: modernize contributor and agent guides"
+git commit -m "feat: add keyboard shortcut for shuffle"
+git commit -m "fix: prevent double-click on share button"
+
+# Avoid
+git commit -m "updated docs"
+git commit -m "fixed stuff"
+git commit -m "changes"
+```
+
+### Message Format
+
+Optional but recommended format:
+
+```
+type: short description
+
+Longer explanation if needed. Wrap at 72 characters.
+Explain the problem this solves and why you chose this approach.
+
+References: #123
+```
+
+Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
+
+## Source of Truth Hierarchy
+
+When in doubt, follow this order:
+
+1. **`SPECIFICATIONS.md`** - User-facing behavior and accessibility
+2. **Existing code behavior** - For non-specified edge cases
+3. **Contributor docs** - `README`, `CONTRIBUTING`, `DEVELOPMENT.md`
+
+## Module Boundaries
+
+Respect these boundaries to keep code organized:
+
+- **`modules/app.js`** - Workflow orchestration, event-to-action control flow
+- **`modules/ui.js`** - Presentational DOM writes, stateless rendering
+- **`modules/state.js`** - State transitions and management
+- **`modules/history.js`** - Browser history and URL synchronization
+- **`modules/storage.js`** - localStorage persistence
+- **`modules/share.js`** - Social/native share integration
+- **`modules/clipboard.js`** - Clipboard API integration
+- **`modules/mock-export.js`** - Export functionality
+- **`modules/utils.js`** - Pure, reusable helpers
+
+## UI Change Requirements
+
+For any visible changes:
+
+1. **Include screenshot(s)** in PR description
+2. **Keep ARIA semantics intact** - Don't break screen reader support
+3. **Avoid problematic motion** - No transitions that reduce readability
+4. **Test keyboard navigation** - Ensure focus management still works
+
+## Community Guidelines
+
+By contributing, you agree to:
+
+- Follow the [Code of Conduct](/development/contributing#code-of-conduct)
+- License contributions under the repository `LICENSE`
+- Engage respectfully with maintainers and other contributors
+
+### Code of Conduct
+
+See `CODE_OF_CONDUCT.md` for full details. Key points:
+
+**Expected behavior:**
+- Show empathy, patience, and respect
+- Give and receive constructive feedback
+- Prioritize user and community benefit over ego
+
+**Unacceptable behavior:**
+- Harassment, discrimination, or exclusionary language
+- Personal attacks, trolling, or sustained disruption
+- Publishing private information without consent
+
+**Reporting:**
+- Open an issue for behavior concerns
+- Contact maintainers through repository channels
+- All reports reviewed and handled with care
+
+## Getting Help
+
+- **Implementation details**: See `DEVELOPMENT.md`
+- **Testing approach**: See [Testing Documentation](/development/testing)
+- **Behavior specifications**: See `SPECIFICATIONS.md` in repo
+- **Security issues**: See `SECURITY.md` in repo
+
+## Change Strategy
+
+When contributing, prefer:
+
+- **Incremental edits** over broad rewrites
+- **Existing modules** unless extraction improves clarity
+- **Static compatibility** - preserve no-build/no-server model
+- **Minimal dependencies** - avoid adding third-party libraries
+
+## Resources
+
+- [Development Setup](/development/setup) - Environment setup guide
+- [Testing Guide](/development/testing) - Playwright smoke tests
+- `SPECIFICATIONS.md` - Canonical behavior requirements
+- `DEVELOPMENT.md` - Architecture and validation details
+- `CODE_OF_CONDUCT.md` - Community standards
+- `SECURITY.md` - Vulnerability reporting

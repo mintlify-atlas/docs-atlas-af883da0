@@ -1,0 +1,217 @@
+---
+title: Copy and Share
+description: Use clipboard copy and social sharing features to distribute headlines instantly
+---
+
+Neckass Headlines provides multiple ways to share generated headlines: direct clipboard copy, native device sharing, and social network links.
+
+## Clipboard Copy
+
+The clipboard copy feature allows you to grab the current headline text for pasting into any application.
+
+### Copy Button
+
+Click the **Copy headline** button in the Quick actions rail to copy the current headline to your clipboard:
+
+```javascript
+// From modules/clipboard.js
+async function copyTextWithFeedback({ text, button, successMessage, onStatus, setButtonLoading }) {
+  setButtonLoading(button, true);
+  try {
+    if (canUseClipboardApi()) {
+      await navigator.clipboard.writeText(text);
+      onStatus(successMessage, false);
+    } else {
+      // Fallback to execCommand
+      const success = copyWithFallback(text);
+    }
+  } finally {
+    setButtonLoading(button, false);
+  }
+}
+```
+
+### Copy Behavior
+
+1. **Modern browsers**: Uses the Clipboard API (`navigator.clipboard.writeText()`)
+2. **Fallback mode**: Uses `document.execCommand('copy')` via a hidden textarea
+3. **Status feedback**: Displays success or error messages below the button
+
+### Security Requirements
+
+The Clipboard API requires a secure context:
+
+```javascript
+function canUseClipboardApi() {
+  return Boolean(
+    window.isSecureContext
+    && navigator.clipboard
+    && typeof navigator.clipboard.writeText === 'function'
+  );
+}
+```
+
+<Note>
+On `http://` or `file://` origins, the app automatically falls back to the `execCommand` method.
+</Note>
+
+### Copy Status Messages
+
+The app displays inline status messages:
+
+| Status | Description |
+|--------|-------------|
+| "Headline copied to clipboard!" | Copy succeeded |
+| "No headline available to copy." | No active headline |
+| "Copy failed. Please try again." | Copy operation failed |
+| "Clipboard unavailable in this browser." | Both methods unavailable |
+
+<Tip>
+The status message uses `role="status"` and `aria-live="polite"` for screen reader announcements.
+</Tip>
+
+## Native Device Share
+
+On mobile devices and browsers that support the Web Share API, you can use the **Share from device** button to invoke the native share sheet.
+
+### Share Button Behavior
+
+The native share button:
+
+1. Checks if `navigator.share` is available
+2. Shares both the headline text and the canonical URL
+3. Falls back to social network links if unavailable
+
+### Shared Content
+
+When sharing, the app includes:
+
+- **Title**: The current headline text
+- **Text**: The headline with URL
+- **URL**: Canonical page URL with headline parameter
+
+## Social Network Links
+
+Three social sharing links are always available:
+
+### Twitter
+
+```javascript
+const twitterUrl = `https://twitter.com/intent/tweet?text=${encodedHeadline}&url=${encodedUrl}&hashtags=Neckass`;
+```
+
+Shares the headline as tweet text with the page URL and `#Neckass` hashtag.
+
+### Facebook
+
+```javascript
+const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}&quote=${encodedHeadline}`;
+```
+
+Opens Facebook's share dialog with the headline as a quoted post.
+
+### Reddit
+
+```javascript
+const redditUrl = `https://www.reddit.com/submit?url=${encodedUrl}&title=${encodedHeadline}`;
+```
+
+Opens Reddit's submit page with the headline as the post title.
+
+<Note>
+All social share links open in a new tab with `target="_blank"` and `rel="noopener noreferrer"` for security.
+</Note>
+
+## Dynamic Link Updates
+
+Social share links update automatically whenever the headline changes:
+
+```javascript
+// From modules/share.js
+function updateSocialShareLinks(elements, headline, canonicalUrl) {
+  const encodedHeadline = encodeURIComponent(headline);
+  const encodedUrl = encodeURIComponent(canonicalUrl);
+  
+  elements.twitterShareLink.href = `https://twitter.com/intent/tweet?text=${encodedHeadline}&url=${encodedUrl}&hashtags=Neckass`;
+  // Updates Facebook, Reddit links similarly
+}
+```
+
+This ensures the shared content always reflects the currently displayed headline.
+
+## URL Parameters
+
+Shared URLs include query parameters to recreate the exact headline state:
+
+```
+https://neckass.com/?headline=local-podcast-host-1&section=culture&q=podcast
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `headline` | Unique identifier for the headline |
+| `section` | Active section filter (if not "latest") |
+| `q` | Active search query |
+| `source` | Source filter (curated/generated) |
+| `panel` | Active panel (recent/favorites/generated) |
+| `layout` | Layout mode (standard/square/story) |
+
+<Tip>
+When someone clicks a shared link, the app restores the exact headline and filter state from the URL.
+</Tip>
+
+## Accessibility Features
+
+### ARIA Labels
+
+All share links include descriptive `aria-label` attributes:
+
+```html
+<a id="twitter-share" 
+   aria-label="Share on Twitter"
+   target="_blank" 
+   rel="noopener noreferrer">
+```
+
+### Keyboard Navigation
+
+All copy and share controls are fully keyboard accessible:
+
+- Tab to focus buttons/links
+- Enter or Space to activate
+- Status messages announced to screen readers
+
+### Loading States
+
+Buttons display a loading state during async operations:
+
+```javascript
+setButtonLoading(button, true);  // Disables button, adds loading class
+// ... perform operation ...
+setButtonLoading(button, false); // Re-enables button
+```
+
+## Error Handling
+
+The copy/share system handles errors gracefully:
+
+1. **Clipboard API fails**: Falls back to `execCommand`
+2. **execCommand fails**: Shows "Clipboard unavailable" message
+3. **No headline available**: Shows "No headline available to copy" message
+4. **Network errors**: Social links open but may fail to load (handled by destination site)
+
+<Warning>
+In private browsing mode, some clipboard operations may be blocked by the browser. The fallback textarea method usually works in these scenarios.
+</Warning>
+
+## Quick Actions on Mobile
+
+On screens ≤600px, quick-jump buttons appear to scroll to copy/share/export cards:
+
+```html
+<button id="jump-copy" class="ghost button-with-icon" type="button">
+  <span>Copy</span>
+</button>
+```
+
+These buttons provide quick access to actions without scrolling through the entire page.

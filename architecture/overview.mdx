@@ -1,0 +1,212 @@
+---
+title: Architecture Overview
+description: High-level architecture of Neckass Headlines - a static-first, zero-build web application
+---
+
+## Design Philosophy
+
+Neckass Headlines is built on a **static-first, zero-build architecture** that prioritizes simplicity, accessibility, and maintainability. The application runs entirely in the browser with no compilation, bundling, or server-side processing required.
+
+### Core Principles
+
+1. **No Build Step** - Open `index.html` in any modern browser and it works
+2. **Static-Host Compatible** - Deploy to any static hosting service without configuration
+3. **Progressive Enhancement** - Core functionality works everywhere, enhanced features layer on top
+4. **Module-Based** - Clean separation of concerns without requiring a module bundler
+5. **Accessibility-First** - ARIA semantics, keyboard navigation, and screen reader support built in
+
+## Architecture Layers
+
+```
+┌─────────────────────────────────────────┐
+│         index.html (Document)           │
+│  Semantic HTML + ARIA + Load Order      │
+└─────────────────────────────────────────┘
+                  ↓
+┌─────────────────────────────────────────┐
+│         script.js (Bootstrap)           │
+│  DOMContentLoaded → Init HeadlineApp    │
+└─────────────────────────────────────────┘
+                  ↓
+┌─────────────────────────────────────────┐
+│     modules/app.js (Orchestration)      │
+│  Event Handling + Workflow Control      │
+└─────────────────────────────────────────┘
+                  ↓
+┌─────────────────────────────────────────┐
+│        Runtime Modules (Feature)        │
+│  state, storage, ui, history, filters   │
+│  share, clipboard, export, metrics      │
+└─────────────────────────────────────────┘
+                  ↓
+┌─────────────────────────────────────────┐
+│      llm.js (Generation Client)         │
+│  On-Device Headline Generation          │
+└─────────────────────────────────────────┘
+```
+
+## Entry Points and Startup
+
+### Loading Sequence
+
+1. **`index.html`** - Document shell loads in order:
+   - Data files (`data/headlines.js`, `data/llm-beats.js`)
+   - Vendor libraries (`vendor/html-to-image.js`)
+   - Module files (all `modules/*.js`)
+   - LLM client (`llm.js`)
+   - Bootstrap script (`script.js`)
+
+2. **Module Registration** - Each module extends `window.Neckass` with functions
+
+3. **Bootstrap** - `script.js` waits for `DOMContentLoaded`, then:
+   ```javascript
+   // Validate dependencies
+   const { HeadlineApp, createStorageAdapter, mapElements } = window.Neckass;
+   
+   // Initialize app
+   const app = new HeadlineApp({
+     headlines: data?.HEADLINES || [],
+     elements: mapElements(),
+     storage: createStorageAdapter()
+   });
+   
+   app.init();
+   ```
+
+### Runtime Initialization
+
+From `script.js:72-91`, the `HeadlineApp.init()` method:
+
+- Binds event listeners to UI controls
+- Restores state from URL parameters and localStorage
+- Renders the initial headline
+- Updates document metadata
+- Initializes daily engagement tracking
+- Sets up keyboard navigation
+
+## Static Assets
+
+```
+project/
+├── index.html          # Document structure
+├── styles.css          # All visual styling
+├── script.js           # Bootstrap
+├── llm.js             # Generation client
+├── modules/           # Feature modules
+├── data/              # Curated content
+│   ├── headlines.js   # Curated headline corpus
+│   └── llm-beats.js   # Generation phrase pools
+├── icons/             # SVG assets
+└── vendor/            # Third-party libs
+    └── html-to-image.js
+```
+
+## Data Flow
+
+### User Interaction Flow
+
+```
+[User clicks Shuffle]
+        ↓
+[HeadlineApp.handleNext()]
+        ↓
+[Generate or select from curated]
+        ↓
+[Update state.navigationStack]
+        ↓
+[Persist to localStorage]
+        ↓
+[Update URL with pushState]
+        ↓
+[Render headline to DOM]
+        ↓
+[Update metadata & share links]
+```
+
+### State Synchronization
+
+The application maintains three sources of truth:
+
+1. **In-Memory State** - `HeadlineApp` instance holds current session state
+2. **localStorage** - Persists navigation history, favorites, filters
+3. **URL State** - Current headline and filter parameters in query string
+
+All three stay synchronized through:
+- **`modules/storage.js`** - localStorage adapter with queued persistence
+- **`modules/history.js`** - URL state management with `pushState`/`replaceState`
+- **`modules/state.js`** - In-memory state model with validation
+
+## No-Build Compatibility
+
+### Development
+
+```bash
+# Just open the file
+open index.html
+
+# Or serve via HTTP if needed
+python -m http.server 8001 --directory .
+```
+
+### Production Deployment
+
+Deploy the entire directory to:
+- GitHub Pages
+- Netlify
+- Vercel
+- Any static host
+
+No build step, no environment variables, no server configuration required.
+
+## Module Boundaries
+
+See [Module System](/architecture/modules) for detailed module responsibilities.
+
+### Key Constraints
+
+- **`app.js`** orchestrates workflows but avoids direct DOM manipulation
+- **`ui.js`** handles all presentational DOM updates but never reads/writes state
+- **State modules** (`state.js`, `history.js`, `storage.js`) own canonical state
+- **Integration modules** (`share.js`, `clipboard.js`, `mock-export.js`) surface small functions
+- **`utils.js`** provides pure, side-effect-free helpers
+
+## Progressive Enhancement
+
+The architecture supports graceful degradation:
+
+```javascript
+// Feature detection patterns
+if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+  // Use crypto.getRandomValues for better randomization
+} else {
+  // Fall back to Math.random()
+}
+
+if (navigator.clipboard?.writeText) {
+  // Use modern Clipboard API
+} else {
+  // Fall back to document.execCommand('copy')
+}
+```
+
+From `llm.js:106-114`, generation uses modern APIs when available:
+- `crypto.getRandomValues()` for random number generation
+- `Intl.Segmenter` for text tokenization
+- `requestIdleCallback` for background tasks (in utils)
+
+## Testing Strategy
+
+Optional smoke tests use Playwright but **do not affect runtime**:
+
+```bash
+npm install  # Optional
+npm run test:smoke
+```
+
+The application remains fully functional without any npm dependencies.
+
+## Next Steps
+
+- [Module System](/architecture/modules) - Detailed module responsibilities
+- [State Management](/architecture/state-management) - localStorage and URL state
+- [LLM Client](/architecture/llm-client) - Generation pipeline architecture

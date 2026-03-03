@@ -1,0 +1,450 @@
+---
+title: Module System
+description: Comprehensive guide to all runtime modules in Neckass Headlines
+---
+
+## Module Architecture
+
+Neckass Headlines uses a **namespace-based module system** where each file extends `window.Neckass` with functions and classes. This approach:
+
+- Works without ES modules or bundlers
+- Provides explicit dependency management
+- Maintains clear module boundaries
+- Enables incremental loading
+
+### Module Pattern
+
+Every module follows this structure:
+
+```javascript
+(() => {
+  const Neckass = window.Neckass = window.Neckass || {};
+  
+  // Module implementation
+  function myFunction() {
+    // ...
+  }
+  
+  // Export to namespace
+  Neckass.myFunction = myFunction;
+})();
+```
+
+## Core Modules
+
+### app.js - Application Orchestrator
+
+**Location:** `modules/app.js`
+
+**Purpose:** Main application class that orchestrates all workflows and event handling.
+
+**Responsibilities:**
+- Event listener binding for all UI controls
+- Workflow orchestration (shuffle, generate, navigate)
+- State transitions and persistence coordination
+- Daily engagement tracking and streak management
+- Metrics collection and reporting
+
+**Key Class:** `HeadlineApp`
+
+```javascript
+class HeadlineApp {
+  constructor({ headlines, elements, storage }) {
+    this.headlines = headlines;
+    this.elements = elements;
+    this.storage = storage;
+    this.state = storage.restore(headlines.length);
+    // ...
+  }
+  
+  init() {
+    this.bindEvents();
+    this.applyUrlState();
+    this.renderInitialHeadline();
+    // ...
+  }
+}
+```
+
+**Module Boundary:** Should NOT perform direct low-level DOM manipulation (delegates to `ui.js`).
+
+### ui.js - Presentation Layer
+
+**Location:** `modules/ui.js`
+
+**Purpose:** All DOM rendering and visual updates.
+
+**Responsibilities:**
+- Element mapping (`mapElements()` - lines 7-82)
+- Status text updates (loader, copy status, export status)
+- Button state management (loading, disabled)
+- Visual feedback (classes, attributes, text content)
+- Filter status rendering
+- Shuffle streak badges
+
+**Key Functions:**
+- `mapElements()` - Maps all DOM elements by ID and selector
+- `setButtonLoading(button, isLoading)` - Button loading states
+- `updateFilterStatus(...)` - Renders filter status text
+- `updateToggleButtons(...)` - Updates toggle button active states
+
+**Module Boundary:** Must remain STATELESS and never read/write localStorage or URL state directly.
+
+### state.js - State Management
+
+**Location:** `modules/state.js`
+
+**Purpose:** Headline cache, navigation state, and generated headline tracking.
+
+**Responsibilities:**
+- Headline cache creation (normalized text → index map)
+- Generated headline deduplication and appending
+- State snapshot cloning
+- Background task scheduling
+
+**Key Functions:**
+
+```javascript
+// Create fast lookup cache
+createHeadlineCache(headlines)
+
+// Append generated headlines without duplicates
+appendGeneratedHeadlines({ headlines, headlineCache, generatedHeadlines })
+```
+
+From `modules/state.js:4-14`, maintains a `Map` for O(1) headline lookups.
+
+### storage.js - Persistence Layer
+
+**Location:** `modules/storage.js`
+
+**Purpose:** localStorage adapter with queued writes and legacy migration.
+
+**Storage Keys:**
+
+```javascript
+const STORAGE_KEYS = {
+  viewedCount: 'headlinesViewed',
+  viewedList: 'viewedHeadlines',
+  navigationStack: 'navigationStack',
+  navigationStackLegacy: 'viewedStack',
+  uniqueHeadlines: 'uniqueHeadlines',
+  generatedHeadlines: 'generatedHeadlines',
+  favorites: 'favoriteHeadlines',
+  filters: 'headlineFilters',
+  dailyEngagement: 'dailyEngagement',
+  feedbackLog: 'headlineFeedbackLog'
+};
+```
+
+**API:**
+
+```javascript
+const storage = createStorageAdapter();
+
+// Restore state on app start
+const state = storage.restore(baseHeadlineCount);
+
+// Queue persistence (batched via requestIdleCallback)
+storage.persist(state);
+```
+
+From `modules/storage.js:21-53`, uses **queued persistence** to batch writes and avoid blocking the main thread.
+
+### history.js - URL State Management
+
+**Location:** `modules/history.js`
+
+**Purpose:** Browser history integration and URL parameter handling.
+
+**Responsibilities:**
+- Read URL query parameters and hash fragments
+- Build canonical URLs with headline identifiers
+- Push/replace browser history states
+- Synchronize URL with application state
+
+**Key Functions:**
+
+```javascript
+// Parse URL state
+getUrlState()  // → { headline, section, query, source, panel, layout }
+
+// Build headline URL
+buildHeadlineUrl({ index, headlines, filters, ... })
+
+// Update browser history
+updateHistoryState({ mode: 'push' | 'replace', url, state })
+```
+
+Supports both query parameters (`?headline=...`) and legacy hash format (`#headline-...`).
+
+### filters.js - Filter Logic
+
+**Location:** `modules/filters.js`
+
+**Purpose:** Headline filtering, classification, and eligibility checks.
+
+**Filter Types:**
+
+```javascript
+const DEFAULT_FILTERS = {
+  section: 'latest',    // latest, world, culture, tech, oddities
+  query: '',            // Free-text search
+  source: 'auto',       // auto, generated, curated
+  panel: 'recent',      // recent, favorites, generated
+  layout: 'standard'    // standard, square, story
+};
+```
+
+**Key Functions:**
+
+```javascript
+// Sanitize and validate filters
+sanitizeFilters(filters)
+
+// Check if any non-default filters are active
+hasActiveFilters(filters)
+
+// Classify headline into section
+classifyHeadline(headlineText)  // → 'latest' | 'world' | ...
+
+// Get all eligible headline indexes
+getEligibleIndexes({ headlines, filters, ... })
+
+// Check if specific index matches filters
+isIndexEligible(index)
+```
+
+From `modules/filters.js:49-80`, `classifyHeadline()` uses keyword matching to auto-detect headline sections.
+
+## Integration Modules
+
+### share.js - Social Sharing
+
+**Location:** `modules/share.js`
+
+**Purpose:** Generate social media share URLs.
+
+**Supported Platforms:**
+- Twitter/X
+- Facebook
+- Reddit
+- LinkedIn
+- Threads
+- Bluesky
+
+**Implementation:**
+
+```javascript
+updateSocialShareLinks(elements, headline, canonicalUrl);
+```
+
+From `modules/share.js:4-27`, constructs platform-specific share URLs with encoded headline text and canonical URL.
+
+### clipboard.js - Copy Operations
+
+**Location:** `modules/clipboard.js`
+
+**Purpose:** Text and image clipboard operations with fallbacks.
+
+**Features:**
+- Modern Clipboard API with `navigator.clipboard.writeText()`
+- Fallback to `document.execCommand('copy')` for older browsers
+- Loading state management during async operations
+- Error handling with user-friendly messages
+
+**Implementation:**
+
+```javascript
+await copyTextWithFeedback({
+  text,
+  button,
+  successMessage,
+  onStatus,
+  setButtonLoading
+});
+```
+
+From `modules/clipboard.js:4-41`, detects secure context and uses Clipboard API when available.
+
+### mock-export.js - Image Export
+
+**Location:** `modules/mock-export.js`
+
+**Purpose:** Export mock front page as PNG image.
+
+**Modes:**
+- **Download** - Save PNG to downloads folder
+- **Copy** - Copy PNG to clipboard (with download fallback)
+
+**Dependencies:** Uses `vendor/html-to-image.js` to render DOM to image.
+
+**Implementation:**
+
+```javascript
+await exportMockFront({
+  mode: 'download' | 'copy',
+  elements,
+  reportStatus,
+  setButtonLoading
+});
+```
+
+From `modules/mock-export.js:4-59`, renders with high pixel ratio for sharp output.
+
+### head.js - Document Metadata
+
+**Location:** `modules/head.js`
+
+**Purpose:** Update `<head>` metadata dynamically.
+
+**Updates:**
+- `<title>` tag
+- Meta description
+- Open Graph tags (og:title, og:description, og:url)
+- Twitter Card tags
+- Canonical link
+
+**Implementation:**
+
+```javascript
+updateDocumentMetadata({
+  headline,
+  index,
+  headlinesLength,
+  isValidHeadlineIndex,
+  getCanonicalUrl
+});
+```
+
+From `modules/head.js:24-44`, creates or updates meta tags in document head.
+
+## Utility Modules
+
+### utils.js - Shared Helpers
+
+**Location:** `modules/utils.js`
+
+**Purpose:** Pure utility functions with no side effects.
+
+**Key Functions:**
+
+```javascript
+// Validation
+isValidHeadlineIndex(index, totalHeadlines)
+
+// Text normalization
+normalizeHeadlineText(text)  // Remove control chars, collapse whitespace
+slugifyHeadline(text)        // Convert to URL-safe slug
+
+// Color selection for accessibility
+selectReadableColor()  // Returns high-contrast color
+
+// Color utilities
+hexToRgb(hex)
+darkenColor(hex, factor)
+contrastRatio(rgb1, rgb2)
+boostContrast(rgb, background)
+```
+
+From `modules/utils.js:38-59`, `selectReadableColor()` ensures minimum 4.5:1 contrast ratio for WCAG AA compliance.
+
+### history-list.js - History Panel
+
+**Location:** `modules/history-list.js`
+
+**Purpose:** Render and manage the history panel list.
+
+**Responsibilities:**
+- Create list items from navigation stack
+- Filter by panel type (recent, favorites, generated)
+- Handle headline selection from list
+- Update active item styling
+
+**Panel Types:**
+- **recent** - Navigation stack in reverse order
+- **favorites** - User-favorited headlines
+- **generated** - AI-generated headlines only
+
+### agent-interface.js - Automation API
+
+**Location:** `modules/agent-interface.js`
+
+**Purpose:** Expose browser-callable tools for agentic workflows.
+
+**Available Tools:**
+
+```javascript
+const agent = createAgentInterface(app);
+
+// Available methods
+await agent.tools.get_state();              // Get current state snapshot
+await agent.tools.shuffle();                // Trigger shuffle
+await agent.tools.previous();               // Go to previous headline
+await agent.tools.generate();               // Force generation
+await agent.tools.set_filters(args);        // Update filters
+await agent.tools.clear_filters();          // Reset filters
+await agent.tools.select_headline(args);    // Jump to specific headline
+await agent.tools.list_headlines(args);     // List all headlines
+```
+
+From `modules/agent-interface.js:1-50`, provides a stable API for browser automation and testing.
+
+### metrics.js - Analytics Tracking
+
+**Location:** `modules/metrics.js`
+
+**Purpose:** Privacy-respecting, local-only metrics tracking.
+
+**Storage Key:** `neckassGrowthMetricsV1`
+
+**Tracked Events:**
+- `session_start` - App initialization
+- `shuffle` - Headline shuffle action
+- `copy_success` - Clipboard copy
+- `share_success` - Native share
+- `share_link_opened` - Social share link click
+- `export_success` - Mock export
+- `agent_call` - Automation API usage
+
+**Implementation:**
+
+```javascript
+const metrics = createMetricsTracker();
+
+// Track event
+metrics.track('shuffle', { hasGenerator: true });
+
+// Get summary
+const summary = metrics.getSummary();
+// → { sessions, shuffles, shares, copies, exports, agentCalls }
+
+// Export for analysis
+const snapshot = metrics.exportSnapshot({ userAgent: '...' });
+```
+
+From `modules/metrics.js:1-50`, keeps last 200 events and stores totals. All data stays in localStorage.
+
+## Module Loading Order
+
+From `index.html`, modules load in this order:
+
+1. Data files (`data/headlines.js`, `data/llm-beats.js`)
+2. Vendor libraries (`vendor/html-to-image.js`)
+3. Utility modules (`modules/utils.js`)
+4. State modules (`modules/state.js`, `modules/storage.js`, `modules/filters.js`)
+5. History modules (`modules/history.js`, `modules/history-list.js`)
+6. UI modules (`modules/ui.js`, `modules/head.js`)
+7. Integration modules (`modules/share.js`, `modules/clipboard.js`, `modules/mock-export.js`)
+8. Metrics module (`modules/metrics.js`)
+9. Agent interface (`modules/agent-interface.js`)
+10. App orchestrator (`modules/app.js`)
+11. LLM client (`llm.js`)
+12. Bootstrap script (`script.js`)
+
+**Order matters** because later modules depend on earlier ones via the `window.Neckass` namespace.
+
+## Next Steps
+
+- [State Management](/architecture/state-management) - localStorage and URL state details
+- [LLM Client](/architecture/llm-client) - Generation pipeline architecture

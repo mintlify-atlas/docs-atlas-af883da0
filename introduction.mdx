@@ -1,0 +1,117 @@
+---
+title: Introduction
+description: A privacy-first, static headline generator with curated prompts and built-in share/export tools
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="Neckass Headlines Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="Neckass Headlines Hero Dark"
+/>
+
+## What is Neckass Headlines?
+
+Neckass Headlines is a **privacy-first, static headline generator** that runs entirely in your browser—no backend, no build system, no tracking. Just open `index.html` and start generating absurd, share-ready satirical headlines.
+
+<CardGroup cols={2}>
+  <Card
+    title="Static-First Architecture"
+    icon="file-code"
+  >
+    Works from local files or any static host. No build pipeline required—just open `index.html` in a modern browser.
+  </Card>
+  <Card
+    title="Privacy by Design"
+    icon="shield-check"
+  >
+    Everything runs on-device. Your session data (headlines viewed, streaks) stays in localStorage—never sent to a server.
+  </Card>
+  <Card
+    title="Curated + Generated Headlines"
+    icon="shuffle"
+  >
+    Shuffle through a curated catalog of absurd headlines, with optional on-device tiny-model generation for variety.
+  </Card>
+  <Card
+    title="Share-Ready UX"
+    icon="share-nodes"
+  >
+    One-click clipboard copy, direct social media share links (Twitter, Facebook, Reddit), and mock front-page PNG export.
+  </Card>
+  <Card
+    title="State-Aware Session"
+    icon="clock-rotate-left"
+  >
+    Navigation and session context persisted with localStorage and URL params. Navigate back through your headline history.
+  </Card>
+  <Card
+    title="Keyboard Navigation"
+    icon="keyboard"
+  >
+    Arrow keys to shuffle and navigate. Full accessibility support with ARIA live regions and focus management.
+  </Card>
+</CardGroup>
+
+## Key Features
+
+### Instant Headline Generation
+Click **Shuffle** to cycle through featured headlines. Use **Previous** to navigate backward through your session history. Headlines are randomly selected from a curated catalog, with optional generated headlines from a tiny on-device LLM mock.
+
+### Copy, Share, Export
+- **Clipboard copy**: Copy the current headline with one click
+- **Social share links**: Pre-filled share links for Twitter, Facebook, and Reddit
+- **Native share**: Use your device's share sheet to share anywhere
+- **Mock front page export**: Download or copy a styled PNG image of the headline as a satirical front page
+
+### Session Tracking
+Your app automatically tracks:
+- **Headlines viewed**: Count of unique headlines you've seen
+- **Recent headlines**: Navigate back through your session history
+- **Daily streaks**: Encouragement to return daily
+- **Shuffle streaks**: Track how many headlines you've shuffled in one session
+
+### Filter & Customize
+Filter headlines by section, search query, or source (curated vs. generated) using URL parameters. Clear filters with one click to reset to all headlines.
+
+### Agentic Interface
+A lightweight browser-side tool interface is exposed at `window.Neckass.agent` for browser automation and agentic LLM runtimes:
+
+```js
+const state = await window.Neckass.agent.call('get_state');
+const next = await window.Neckass.agent.call('shuffle');
+const previous = await window.Neckass.agent.call('previous');
+```
+
+Available tools: `get_state`, `shuffle`, `previous`, `generate`, `set_filters`, `clear_filters`, `select_headline`, `list_headlines`.
+
+## Pages in the App
+
+- **`index.html`** — Main generator experience
+- **`about.html`** — Product overview and feature summary
+- **`examples.html`** — Sample headlines and tone reference
+
+## No Build Required
+
+Neckass Headlines is designed to work without any build tooling:
+
+- No npm install required for runtime
+- No webpack, vite, or bundler
+- No transpilation or compilation step
+- Just open the HTML file and go
+
+Optional smoke tests use Playwright (`npm install` + `npm run test:smoke`) but are not required to run the app.
+
+## Ready to Start?
+
+<Card
+  title="Quickstart Guide"
+  icon="rocket"
+  href="/quickstart"
+>
+  Get Neckass Headlines running in under 2 minutes
+</Card>

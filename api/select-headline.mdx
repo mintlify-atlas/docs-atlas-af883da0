@@ -1,0 +1,361 @@
+---
+title: select_headline
+description: Navigate directly to a specific headline using its identifier
+---
+
+## Overview
+
+The `select_headline` method allows direct navigation to a specific headline by its stable identifier. This enables bookmarking, deep linking, and programmatic headline selection.
+
+## Method Signature
+
+```javascript
+await window.Neckass.agent.call('select_headline', { identifier })
+```
+
+## Parameters
+
+<ParamField path="identifier" type="string" required>
+  The stable identifier for the headline to select. Format:
+  - `"curated-{N}"` for curated headlines (e.g., `"curated-42"`)
+  - `"generated-{N}"` for generated headlines (e.g., `"generated-5"`)
+  
+  The identifier can be obtained from state snapshots or `list_headlines` results.
+</ParamField>
+
+## Return Value
+
+Returns a state snapshot object for the selected headline:
+
+<ResponseField name="index" type="number | null">
+  The selected headline's position in the internal headlines array
+</ResponseField>
+
+<ResponseField name="identifier" type="string | null">
+  The identifier that was selected (matches the input parameter)
+</ResponseField>
+
+<ResponseField name="headline" type="string">
+  The text of the selected headline
+</ResponseField>
+
+<ResponseField name="url" type="string | null">
+  The canonical URL for the selected headline
+</ResponseField>
+
+<ResponseField name="filters" type="object">
+  Active filter settings (unchanged)
+</ResponseField>
+
+<ResponseField name="poolSize" type="number">
+  Number of headlines matching current filters
+</ResponseField>
+
+<ResponseField name="totalHeadlines" type="number">
+  Total number of headlines available
+</ResponseField>
+
+<ResponseField name="generatorAvailable" type="boolean">
+  Whether the tiny model generator is available
+</ResponseField>
+
+## Usage Examples
+
+### Select by Identifier
+
+```javascript
+// Select a specific curated headline
+const result = await window.Neckass.agent.call('select_headline', {
+  identifier: 'curated-42'
+});
+
+console.log(`Selected: ${result.headline}`);
+console.log(`Identifier: ${result.identifier}`);
+```
+
+### Select from List Results
+
+```javascript
+// Get list of headlines
+const list = await window.Neckass.agent.call('list_headlines', {
+  limit: 10
+});
+
+// Select the third headline from the list
+const selected = await window.Neckass.agent.call('select_headline', {
+  identifier: list.items[2].identifier
+});
+
+console.log(`Selected: ${selected.headline}`);
+```
+
+### Select and Save Identifier
+
+```javascript
+// Shuffle and save identifier for later
+const shuffled = await window.Neckass.agent.call('shuffle');
+const savedId = shuffled.identifier;
+
+// ... later ...
+
+// Navigate back to saved headline
+const result = await window.Neckass.agent.call('select_headline', {
+  identifier: savedId
+});
+
+console.log('Returned to saved headline');
+```
+
+### Implement Bookmarking
+
+```javascript
+const bookmarks = [];
+
+// Bookmark current headline
+const state = await window.Neckass.agent.call('get_state');
+bookmarks.push({
+  identifier: state.identifier,
+  headline: state.headline,
+  timestamp: Date.now()
+});
+
+console.log(`Bookmarked: ${state.headline}`);
+
+// Restore from bookmark
+const bookmark = bookmarks[0];
+const result = await window.Neckass.agent.call('select_headline', {
+  identifier: bookmark.identifier
+});
+
+console.log(`Restored bookmark: ${result.headline}`);
+```
+
+### Handle Selection Errors
+
+```javascript
+try {
+  const result = await window.Neckass.agent.call('select_headline', {
+    identifier: 'curated-999999'
+  });
+  console.log(`Selected: ${result.headline}`);
+} catch (error) {
+  console.error('Selection failed:', error.message);
+  // "Headline was not found or did not match active filters."
+}
+```
+
+### Select with Filter Validation
+
+```javascript
+// Set filters
+await window.Neckass.agent.call('set_filters', { section: 'sports' });
+
+try {
+  // Try to select a non-sports headline
+  await window.Neckass.agent.call('select_headline', {
+    identifier: 'curated-5' // Assume this is a 'local' headline
+  });
+} catch (error) {
+  console.log('Headline filtered out by section filter');
+  // Error: "Headline was not found or did not match active filters."
+}
+```
+
+### Navigate to Generated Headline
+
+```javascript
+// Generate a headline
+const generated = await window.Neckass.agent.call('generate');
+const genId = generated.identifier;
+
+// Shuffle a few times
+await window.Neckass.agent.call('shuffle');
+await window.Neckass.agent.call('shuffle');
+
+// Return to generated headline
+const result = await window.Neckass.agent.call('select_headline', {
+  identifier: genId
+});
+
+console.log(`Returned to generated headline: ${result.headline}`);
+```
+
+### Implement Navigation History
+
+```javascript
+const history = [];
+
+// Track headlines as user shuffles
+for (let i = 0; i < 5; i++) {
+  const result = await window.Neckass.agent.call('shuffle');
+  history.push(result.identifier);
+}
+
+// Navigate to specific point in history
+const historicalId = history[2];
+const result = await window.Neckass.agent.call('select_headline', {
+  identifier: historicalId
+});
+
+console.log(`Jumped to history position 2: ${result.headline}`);
+```
+
+### Deep Linking
+
+```javascript
+// Parse identifier from URL query parameter
+const urlParams = new URLSearchParams(window.location.search);
+const headlineId = urlParams.get('headline');
+
+if (headlineId) {
+  try {
+    const result = await window.Neckass.agent.call('select_headline', {
+      identifier: headlineId
+    });
+    console.log(`Deep linked to: ${result.headline}`);
+  } catch (error) {
+    console.log('Invalid or filtered headline ID in URL');
+    // Fall back to shuffle
+    await window.Neckass.agent.call('shuffle');
+  }
+}
+```
+
+## Implementation Details
+
+The method calls `app.selectHeadlineByIdentifier()` internally:
+
+```javascript
+async select_headline(args = {}) {
+    const snapshot = app.selectHeadlineByIdentifier(args.identifier);
+    if (!snapshot) {
+        throw new Error('Headline was not found or did not match active filters.');
+    }
+    return snapshot;
+}
+```
+
+The `selectHeadlineByIdentifier()` method:
+1. Converts identifier to internal index
+2. Validates that index is eligible (matches current filters)
+3. Calls `selectHeadline(index)` to navigate
+4. Returns state snapshot
+5. Returns `null` if headline is not found or filtered out
+
+Source: `modules/agent-interface.js:32-38`, `modules/app.js:1756-1763`
+
+### Identifier Format
+
+Identifiers follow these patterns:
+
+- **Curated headlines**: `"curated-{N}"` where N is the index in the original headlines array
+- **Generated headlines**: `"generated-{N}"` where N is the offset from the base headline count
+
+```javascript
+// Example identifier conversion
+identifierFromIndex(index) {
+  if (index < this.baseHeadlineCount) {
+    return `curated-${index}`;
+  } else {
+    return `generated-${index - this.baseHeadlineCount}`;
+  }
+}
+
+identifierToIndex(identifier) {
+  const parts = identifier.split('-');
+  const type = parts[0];
+  const num = parseInt(parts[1], 10);
+  
+  if (type === 'curated') {
+    return num;
+  } else if (type === 'generated') {
+    return this.baseHeadlineCount + num;
+  }
+  return null;
+}
+```
+
+## Navigation Behavior
+
+When a headline is selected:
+
+- Updates the current headline display
+- Adds entry to navigation history stack
+- Updates URL with identifier parameter
+- Updates social share links
+- Triggers browser history entry
+- Persists state to localStorage
+
+## Filter Validation
+
+The method respects active filters:
+
+- If the headline matches current filters: selection succeeds
+- If the headline is filtered out: throws error
+- If the identifier is invalid: throws error
+
+To select a filtered headline, clear or adjust filters first:
+
+```javascript
+// Clear filters before selecting
+await window.Neckass.agent.call('clear_filters');
+
+const result = await window.Neckass.agent.call('select_headline', {
+  identifier: 'curated-123'
+});
+```
+
+## Error Handling
+
+The method throws an error if selection fails:
+
+```javascript
+try {
+  const result = await window.Neckass.agent.call('select_headline', {
+    identifier: 'invalid-identifier'
+  });
+} catch (error) {
+  console.error(error.message);
+  // "Headline was not found or did not match active filters."
+}
+```
+
+### Common Error Causes
+
+- **Invalid identifier format**: Not "curated-N" or "generated-N"
+- **Out of range**: Index exceeds total headlines
+- **Filtered out**: Headline doesn't match active section/query filters
+- **Generated headline not loaded**: Identifier references a generated headline from a previous session
+
+## Performance Notes
+
+- Selection is synchronous (no generation)
+- Identifier-to-index conversion is O(1)
+- Filter validation is O(1)
+- Safe to call repeatedly
+
+## Identifier Stability
+
+Identifiers are stable within a session:
+
+- Curated identifiers are permanent (tied to catalog position)
+- Generated identifiers persist for the session duration
+- Generated identifiers are stored in localStorage
+- Generated headlines may not be available across sessions
+
+## Related Methods
+
+<CardGroup cols={2}>
+  <Card title="list_headlines" icon="list" href="/api/list-headlines">
+    Get identifiers for available headlines
+  </Card>
+  <Card title="get_state" icon="circle-info" href="/api/get-state">
+    Retrieve current headline identifier
+  </Card>
+  <Card title="shuffle" icon="shuffle" href="/api/shuffle">
+    Select a random headline
+  </Card>
+  <Card title="previous" icon="arrow-left" href="/api/previous">
+    Navigate to previous headline in history
+  </Card>
+</CardGroup>

@@ -1,0 +1,275 @@
+---
+title: shuffle
+description: Generate or select a new random headline from the available pool
+---
+
+## Overview
+
+The `shuffle` method is the primary action for cycling through headlines. It selects a new random headline from the eligible pool, optionally generating a new headline using the tiny model based on current filter settings.
+
+## Method Signature
+
+```javascript
+await window.Neckass.agent.call('shuffle')
+```
+
+## Parameters
+
+This method takes no parameters. Shuffle behavior is controlled by active filters set via `set_filters`.
+
+## Return Value
+
+Returns a state snapshot object after shuffling to the new headline:
+
+<ResponseField name="index" type="number | null">
+  The new headline's position in the internal headlines array
+</ResponseField>
+
+<ResponseField name="identifier" type="string | null">
+  A stable identifier for the new headline (e.g., "curated-87" or "generated-3")
+</ResponseField>
+
+<ResponseField name="headline" type="string">
+  The new headline text
+</ResponseField>
+
+<ResponseField name="url" type="string | null">
+  The canonical URL for the new headline with query parameters
+</ResponseField>
+
+<ResponseField name="filters" type="object">
+  Active filter settings (unchanged from before shuffle)
+</ResponseField>
+
+<ResponseField name="poolSize" type="number">
+  Number of headlines matching current filters
+</ResponseField>
+
+<ResponseField name="totalHeadlines" type="number">
+  Total number of headlines available (may increase if a new headline was generated)
+</ResponseField>
+
+<ResponseField name="generatorAvailable" type="boolean">
+  Whether the tiny model generator is available
+</ResponseField>
+
+## Behavior
+
+### Source Selection Logic
+
+The shuffle method automatically determines whether to generate a new headline or select from curated headlines based on:
+
+1. **Active source filter**: Set via `set_filters({ source: 'generated' | 'curated' | 'auto' })`
+2. **Generator availability**: Whether the tiny model is functional
+3. **Fallback strategy**: Always falls back to curated headlines if generation fails
+
+<CodeGroup>
+```javascript Auto Mode (Default)
+// With source: 'auto', prefers generator if available
+await window.Neckass.agent.call('set_filters', { source: 'auto' });
+const result = await window.Neckass.agent.call('shuffle');
+// May return curated or generated headline
+```
+
+```javascript Generated Only
+// Force generation (falls back to curated if unavailable)
+await window.Neckass.agent.call('set_filters', { source: 'generated' });
+const result = await window.Neckass.agent.call('shuffle');
+// Attempts generation, uses curated as fallback
+```
+
+```javascript Curated Only
+// Use only curated headlines from catalog
+await window.Neckass.agent.call('set_filters', { source: 'curated' });
+const result = await window.Neckass.agent.call('shuffle');
+// Always returns curated headline
+```
+</CodeGroup>
+
+### Randomization
+
+- Shuffles from the filtered headline pool
+- Avoids repeating the current headline when possible
+- Respects active section and query filters
+- Adds new headline to navigation history stack
+
+### UI Updates
+
+- Updates the headline display
+- Updates URL with new headline identifier
+- Updates social share links
+- Triggers navigation history entry
+- Shows loading state during generation
+
+## Usage Examples
+
+### Basic Shuffle
+
+```javascript
+const result = await window.Neckass.agent.call('shuffle');
+console.log(`New headline: ${result.headline}`);
+console.log(`Pool size: ${result.poolSize}`);
+```
+
+### Shuffle Multiple Times
+
+```javascript
+const headlines = [];
+
+for (let i = 0; i < 5; i++) {
+  const result = await window.Neckass.agent.call('shuffle');
+  headlines.push(result.headline);
+}
+
+console.log('Generated headlines:', headlines);
+```
+
+### Shuffle with Section Filter
+
+```javascript
+// Filter to sports headlines
+await window.Neckass.agent.call('set_filters', { section: 'sports' });
+
+// Shuffle within sports section
+const result = await window.Neckass.agent.call('shuffle');
+console.log(`Sports headline: ${result.headline}`);
+```
+
+### Monitor Source of Headlines
+
+```javascript
+const result = await window.Neckass.agent.call('shuffle');
+
+if (result.identifier.startsWith('generated-')) {
+  console.log('Got a generated headline');
+} else if (result.identifier.startsWith('curated-')) {
+  console.log('Got a curated headline');
+}
+```
+
+### Shuffle Until Condition Met
+
+```javascript
+let result;
+let attempts = 0;
+const maxAttempts = 10;
+
+do {
+  result = await window.Neckass.agent.call('shuffle');
+  attempts++;
+} while (!result.headline.includes('Cat') && attempts < maxAttempts);
+
+if (result.headline.includes('Cat')) {
+  console.log(`Found cat headline: ${result.headline}`);
+} else {
+  console.log('No cat headline found after 10 attempts');
+}
+```
+
+### Handle Empty Pool
+
+```javascript
+// Set very restrictive filter
+await window.Neckass.agent.call('set_filters', { 
+  section: 'local',
+  query: 'veryrareterm'
+});
+
+const result = await window.Neckass.agent.call('shuffle');
+
+if (result.poolSize === 0) {
+  console.log('No headlines match current filters');
+  console.log(result.headline); // "No headlines match your current filters."
+}
+```
+
+## Implementation Details
+
+The method calls `app.handleNext()` internally:
+
+```javascript
+async shuffle() {
+    await app.handleNext();
+    return app.getAgentSnapshot();
+}
+```
+
+The `handleNext()` method:
+1. Checks if generator should be used based on filters
+2. Attempts generation if configured
+3. Falls back to random selection from curated headlines
+4. Updates UI, URL, and navigation history
+5. Triggers growth event tracking
+
+Source: `modules/agent-interface.js:13-16`, `modules/app.js:160-201`
+
+## Performance Considerations
+
+### Generation Latency
+
+When the tiny model generates a new headline:
+- Simulated latency: 280-720ms (with jitter)
+- Hard timeout: 1800ms
+- Loading state displayed during generation
+
+### Pool Size Impact
+
+- Small pools (< 10 headlines) may show repeats more quickly
+- Large pools provide better randomization
+- Empty pools return error state
+
+## Error Handling
+
+The shuffle method handles errors gracefully:
+
+```javascript
+try {
+  const result = await window.Neckass.agent.call('shuffle');
+  console.log(result.headline);
+} catch (error) {
+  // Errors are rare - method falls back to safe states
+  console.error('Shuffle failed:', error);
+}
+```
+
+### Automatic Fallbacks
+
+- Generation timeout → curated shuffle
+- Generation error → curated shuffle
+- Empty curated pool → error state message
+- Invalid filters → shows "No headlines match your current filters."
+
+## Growth Event Tracking
+
+Each shuffle triggers tracking:
+
+```javascript
+app.trackGrowthEvent('shuffle', {
+  source: 'generated' | 'curated',
+  hasActiveFilters: boolean
+});
+```
+
+## State Persistence
+
+Shuffle operations persist to `localStorage`:
+- New headline added to navigation stack
+- Unique headlines counter updated
+- Generated headlines stored for session
+
+## Related Methods
+
+<CardGroup cols={2}>
+  <Card title="previous" icon="arrow-left" href="/api/previous">
+    Navigate back to the previous headline
+  </Card>
+  <Card title="generate" icon="wand-magic-sparkles" href="/api/generate">
+    Force generation of a new headline
+  </Card>
+  <Card title="set_filters" icon="filter" href="/api/filters">
+    Configure shuffle behavior with filters
+  </Card>
+  <Card title="get_state" icon="circle-info" href="/api/get-state">
+    Check current state before shuffling
+  </Card>
+</CardGroup>

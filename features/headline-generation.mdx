@@ -1,0 +1,144 @@
+---
+title: Headline Generation
+description: Learn how Neckass generates headlines using curated content and a client-side generation system
+---
+
+Neckass Headlines provides two sources for headline content: a curated collection of absurd news-style headlines and an on-device generation system that creates new headlines dynamically.
+
+## Generation Modes
+
+### Curated Headlines
+
+The default headline source is a hand-curated collection of satirical news headlines. These headlines are:
+
+- Pre-written and validated for quality
+- Available immediately without any generation delay
+- Stored in `data/headlines.js` as a static array
+- Always available, even in constrained browser environments
+
+### Generated Headlines
+
+The v2 generator (`llm.js`) creates headlines on-demand using a heuristic-based system:
+
+```javascript
+const result = await tinyLlmClient.generateHeadline({
+  section: 'tech',      // Optional: latest, world, culture, tech, oddities
+  source: 'generated',  // Optional: curated, generated, any
+  query: 'podcast',     // Optional: filter by search term
+  exclude: ['...'],     // Optional: headlines to avoid
+  seed: 12345          // Optional: deterministic output
+});
+```
+
+#### Generation Pipeline
+
+The generator follows a multi-stage pipeline:
+
+1. **Context Assembly** - Normalizes filter inputs and builds request context
+2. **Candidate Synthesis** - Creates 12-24 headline candidates by combining template slots and phrase pools
+3. **Scoring and Ranking** - Evaluates candidates using weighted heuristics:
+   - Relevance to query tokens (35% weight)
+   - Section alignment (22% weight)
+   - Novelty against recent history (20% weight)
+   - Structural diversity (internal scoring)
+   - Target length 45-110 characters (15% weight)
+   - Tone safety checks (10% weight)
+4. **Fallback Handling** - Returns to curated headlines if no candidate meets quality threshold
+
+#### Quality Guardrails
+
+The generator enforces several quality constraints:
+
+- **Length**: 45-110 character target, 140 character hard cap
+- **Duplicate suppression**: No exact match with last 30 generated headlines
+- **Near-duplicate detection**: Rejects candidates with high token overlap against last 10 shown headlines
+- **Tone safety**: Avoids harassment terms while preserving satirical voice
+- **Formatting**: Sentence case, no trailing punctuation unless stylistically required
+
+<Note>
+The generator uses `crypto.getRandomValues()` when available for stronger randomization, with graceful fallback to `Math.random()`.
+</Note>
+
+## Generation Behavior
+
+When you click **Shuffle**, the app determines which source to use:
+
+```javascript
+// From modules/app.js
+const forwardKeys = ['ArrowRight', 'ArrowDown'];
+if (forwardKeys.includes(event.key)) {
+  this.handleNext();
+}
+```
+
+The `handleNext()` method:
+
+1. Checks active filters (`section`, `source`, `query`)
+2. Attempts generation if `source` is "generated" or "auto" and generator is available
+3. Falls back to curated headlines on timeout (1800ms) or generation failure
+4. Ensures the next headline differs from the current headline
+
+## Section Classification
+
+Headlines are automatically classified into sections based on content tokens:
+
+| Section | Keywords |
+|---------|----------|
+| **World** | canada, federal, global, climate, ambassador, space, metaverse, crypto, treaty |
+| **Tech** | app, wifi, ai, bot, algorithm, ios, android, tweet, stream, vr, podcast, discord, zoom |
+| **Culture** | tiktok, reels, instagram, spotify, etsy, book, substack, newsletter, fashion, club |
+| **Oddities** | unhinged, manifest, ghost, meme, weird, npc, pickleball, cursed, demon, zodiac |
+| **Latest** | Default section for all other headlines |
+
+<Tip>
+When a section filter is active, the generator weights phrase pools toward that section before ranking candidates.
+</Tip>
+
+## Generation Performance
+
+- **Simulated latency**: 280-720ms with randomized jitter
+- **Hard timeout**: 1800ms
+- **Fallback**: Automatic switch to curated headlines on timeout
+- **Persistence**: Recent generated headlines stored in localStorage (`tinyLlmV2Recent`, max 60 entries)
+
+<Warning>
+The generator remains fully functional when localStorage is unavailable (private mode or quota errors), but recent history tracking will be session-only.
+</Warning>
+
+## Diagnostics
+
+The generator exposes diagnostics for debugging:
+
+```javascript
+const diagnostics = tinyLlmClient.getLastDiagnostics();
+// Returns:
+// {
+//   backend: 'v2-heuristic',
+//   timeoutMs: 1800,
+//   fallback: null,
+//   warm: true,
+//   reasonCodes: ['section-match', 'query-match', 'novel-structure']
+// }
+```
+
+Reason codes indicate why a candidate was selected:
+
+- `section-match` - Headline aligned with requested section
+- `query-match` - Contains query tokens
+- `not-recent-duplicate` - Not in recent duplicate window
+- `novel-structure` - Low token overlap with recent headlines
+- `target-length` - Within ideal length range
+- `tone-safe` - Passed safety checks
+
+## Static & No-Build
+
+The entire generation system runs client-side with zero external dependencies:
+
+- No server calls or API requests
+- No build tooling required
+- Works on `file://` protocol
+- Compatible with static hosting (GitHub Pages, Netlify, etc.)
+
+<Tip>
+For local testing, you can open `index.html` directly in a browser or use `python -m http.server` if your browser requires HTTP for certain APIs.
+</Tip>

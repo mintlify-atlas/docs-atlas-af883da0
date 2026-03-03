@@ -1,0 +1,418 @@
+---
+title: set_filters & clear_filters
+description: Control headline filtering by section, query, and source preferences
+---
+
+## Overview
+
+The filter methods allow programmatic control over which headlines are eligible for shuffling and display. Filters can be set individually or in combination to narrow the headline pool.
+
+## set_filters Method
+
+### Method Signature
+
+```javascript
+await window.Neckass.agent.call('set_filters', args)
+```
+
+### Parameters
+
+<ParamField path="section" type="string" default="latest">
+  Filter headlines by section category:
+  - `"latest"` - All headlines (default)
+  - `"local"` - Local news headlines
+  - `"politics"` - Political headlines
+  - `"sports"` - Sports headlines
+  - `"tech"` - Technology headlines
+  - `"world"` - World news headlines
+</ParamField>
+
+<ParamField path="query" type="string" default="">
+  Free-text search query to filter headlines. Matches against headline text using case-insensitive substring search.
+</ParamField>
+
+<ParamField path="source" type="string" default="auto">
+  Source preference for headline selection:
+  - `"auto"` - Prefer generated headlines if available, otherwise curated (default)
+  - `"curated"` - Only use curated headlines from the catalog
+  - `"generated"` - Only use generated headlines (falls back to curated if generator unavailable)
+</ParamField>
+
+### Return Value
+
+Returns a state snapshot object with updated filters applied:
+
+<ResponseField name="index" type="number | null">
+  The headline index after applying filters (may change if current headline was filtered out)
+</ResponseField>
+
+<ResponseField name="identifier" type="string | null">
+  A stable identifier for the headline after filter application
+</ResponseField>
+
+<ResponseField name="headline" type="string">
+  The headline text after applying filters
+</ResponseField>
+
+<ResponseField name="url" type="string | null">
+  The canonical URL with updated filter parameters
+</ResponseField>
+
+<ResponseField name="filters" type="object">
+  The newly applied filter settings
+</ResponseField>
+
+<ResponseField name="poolSize" type="number">
+  Number of headlines matching the new filters
+</ResponseField>
+
+<ResponseField name="totalHeadlines" type="number">
+  Total number of headlines available
+</ResponseField>
+
+<ResponseField name="generatorAvailable" type="boolean">
+  Whether the tiny model generator is available
+</ResponseField>
+
+### Usage Examples
+
+#### Set Section Filter
+
+```javascript
+// Filter to sports headlines only
+const result = await window.Neckass.agent.call('set_filters', { 
+  section: 'sports' 
+});
+
+console.log(`Sports pool size: ${result.poolSize}`);
+console.log(`Current headline: ${result.headline}`);
+```
+
+#### Set Query Filter
+
+```javascript
+// Search for headlines containing 'cat'
+const result = await window.Neckass.agent.call('set_filters', { 
+  query: 'cat' 
+});
+
+console.log(`Found ${result.poolSize} headlines matching 'cat'`);
+```
+
+#### Set Source Filter
+
+```javascript
+// Use only curated headlines
+const result = await window.Neckass.agent.call('set_filters', { 
+  source: 'curated' 
+});
+
+console.log('Now using curated headlines only');
+```
+
+#### Combine Multiple Filters
+
+```javascript
+// Filter to local + search query
+const result = await window.Neckass.agent.call('set_filters', {
+  section: 'local',
+  query: 'mayor',
+  source: 'auto'
+});
+
+console.log(`Local headlines about mayor: ${result.poolSize}`);
+```
+
+#### Partial Filter Updates
+
+```javascript
+// Set section first
+await window.Neckass.agent.call('set_filters', { section: 'politics' });
+
+// Add query without changing section
+const result = await window.Neckass.agent.call('set_filters', { 
+  query: 'election' 
+});
+
+// Result has both section: 'politics' and query: 'election'
+console.log(result.filters);
+// { section: 'politics', query: 'election', source: 'auto' }
+```
+
+#### Handle Empty Results
+
+```javascript
+const result = await window.Neckass.agent.call('set_filters', {
+  section: 'tech',
+  query: 'veryrareterm'
+});
+
+if (result.poolSize === 0) {
+  console.log('No headlines match these filters');
+  console.log(result.headline); // "No headlines match your current filters."
+  
+  // Clear filters to restore pool
+  await window.Neckass.agent.call('clear_filters');
+}
+```
+
+#### Monitor Filter Changes
+
+```javascript
+const before = await window.Neckass.agent.call('get_state');
+console.log(`Pool before: ${before.poolSize}`);
+
+await window.Neckass.agent.call('set_filters', { section: 'local' });
+
+const after = await window.Neckass.agent.call('get_state');
+console.log(`Pool after: ${after.poolSize}`);
+console.log(`Reduction: ${before.poolSize - after.poolSize} headlines filtered`);
+```
+
+## clear_filters Method
+
+### Method Signature
+
+```javascript
+await window.Neckass.agent.call('clear_filters')
+```
+
+### Parameters
+
+This method takes no parameters.
+
+### Return Value
+
+Returns a state snapshot object with all filters reset to defaults:
+
+<ResponseField name="filters" type="object">
+  Reset to default filter values:
+  ```javascript
+  {
+    section: 'latest',
+    query: '',
+    source: 'auto'
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="poolSize" type="number">
+  The full headline pool size (all headlines eligible)
+</ResponseField>
+
+All other fields follow the standard state snapshot structure.
+
+### Usage Examples
+
+#### Basic Clear
+
+```javascript
+// Apply some filters
+await window.Neckass.agent.call('set_filters', {
+  section: 'sports',
+  query: 'championship'
+});
+
+// Clear all filters
+const result = await window.Neckass.agent.call('clear_filters');
+
+console.log(result.filters);
+// { section: 'latest', query: '', source: 'auto' }
+console.log(`Full pool restored: ${result.poolSize} headlines`);
+```
+
+#### Clear and Shuffle
+
+```javascript
+// Clear filters and immediately shuffle
+await window.Neckass.agent.call('clear_filters');
+const result = await window.Neckass.agent.call('shuffle');
+
+console.log('Shuffled from full headline pool');
+```
+
+#### Reset After Narrow Search
+
+```javascript
+// Very restrictive search
+const filtered = await window.Neckass.agent.call('set_filters', {
+  section: 'tech',
+  query: 'veryrareterm'
+});
+
+if (filtered.poolSize < 5) {
+  console.log('Too few results, clearing filters...');
+  const cleared = await window.Neckass.agent.call('clear_filters');
+  console.log(`Restored to ${cleared.poolSize} headlines`);
+}
+```
+
+## Implementation Details
+
+### set_filters
+
+Calls `app.setFiltersForAgent()` internally:
+
+```javascript
+async set_filters(args = {}) {
+    return app.setFiltersForAgent(args);
+}
+```
+
+The method:
+1. Merges incoming filters with existing filters
+2. Sanitizes filter values
+3. Updates UI filter controls
+4. Refreshes the filtered index pool
+5. Switches to a valid headline if current headline is filtered out
+6. Persists filters to localStorage
+7. Updates URL parameters
+
+Source: `modules/agent-interface.js:25-27`, `modules/app.js:1719-1754`
+
+### clear_filters
+
+Calls `app.clearAllFilters()` internally:
+
+```javascript
+async clear_filters() {
+    app.clearAllFilters();
+    return app.getAgentSnapshot();
+}
+```
+
+The method:
+1. Resets all filters to defaults
+2. Updates UI controls
+3. Refreshes filtered index pool
+4. Persists cleared state to localStorage
+5. Updates URL parameters
+
+Source: `modules/agent-interface.js:28-31`
+
+## Filter Behavior
+
+### Section Filtering
+
+Section filters are applied by matching the headline's classified section:
+
+- Headlines are classified on app initialization
+- Classification uses pattern matching against headline text
+- `"latest"` section shows all headlines regardless of classification
+
+### Query Filtering
+
+Query filters use case-insensitive substring matching:
+
+```javascript
+const matches = headline.toLowerCase().includes(query.toLowerCase());
+```
+
+- Whitespace is normalized (trim, collapse)
+- Multiple words are treated as a single phrase
+- No word boundary or stemming logic
+
+### Source Filtering
+
+Source filters control shuffle and generation behavior:
+
+- `"auto"`: Prefers generator if available
+- `"curated"`: Only shuffles curated headlines
+- `"generated"`: Attempts generation, falls back to curated
+
+### Filter Combination
+
+When multiple filters are active, headlines must match ALL filters:
+
+```javascript
+const eligible = headlines.filter(h => 
+  matchesSection(h) && 
+  matchesQuery(h) && 
+  matchesSource(h)
+);
+```
+
+## Current Headline Behavior
+
+When filters are applied:
+
+- If the current headline matches new filters: headline stays the same
+- If the current headline is filtered out: switches to first eligible headline
+- If no headlines match filters: shows empty state message
+
+## State Persistence
+
+Filters are persisted to `localStorage`:
+
+```javascript
+localStorage.setItem('headlineFilters', JSON.stringify({
+  section: 'sports',
+  query: 'championship',
+  source: 'auto'
+}));
+```
+
+### Cross-Session Behavior
+
+- Filters persist across page reloads
+- URL parameters override persisted filters
+- Invalid filter values are sanitized to defaults
+
+## URL Integration
+
+Filters are reflected in URL query parameters:
+
+```
+https://example.com/?section=sports&q=championship&source=curated
+```
+
+- `section` parameter for section filter
+- `q` parameter for query filter
+- `source` parameter for source preference
+
+## Error Handling
+
+Both methods are fault-tolerant:
+
+```javascript
+// Invalid filter values are sanitized
+const result = await window.Neckass.agent.call('set_filters', {
+  section: 'invalid',
+  source: 'unknown'
+});
+
+// Sanitized to valid defaults
+console.log(result.filters);
+// { section: 'latest', query: '', source: 'auto' }
+```
+
+### Edge Cases
+
+- **Null/undefined args**: Treated as no change
+- **Invalid section**: Falls back to "latest"
+- **Invalid source**: Falls back to "auto"
+- **Non-string query**: Converted to empty string
+
+## Performance Notes
+
+- Filter changes trigger pool re-computation
+- Pool computation is synchronous (no generation)
+- Minimal overhead for typical pool sizes (< 1000 headlines)
+- Filter state changes trigger localStorage writes
+
+## Related Methods
+
+<CardGroup cols={2}>
+  <Card title="shuffle" icon="shuffle" href="/api/shuffle">
+    Shuffle respects active filters
+  </Card>
+  <Card title="generate" icon="wand-magic-sparkles" href="/api/generate">
+    Generation uses filter context
+  </Card>
+  <Card title="list_headlines" icon="list" href="/api/list-headlines">
+    List headlines from filtered pool
+  </Card>
+  <Card title="get_state" icon="circle-info" href="/api/get-state">
+    Check current filter settings
+  </Card>
+</CardGroup>

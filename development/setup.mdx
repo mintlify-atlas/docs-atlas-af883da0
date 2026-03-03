@@ -1,0 +1,194 @@
+---
+title: Development Setup
+description: Set up your local development environment for Neckass Headlines
+---
+
+## Prerequisites
+
+Neckass Headlines is a **zero-build** static web application. You don't need Node.js or any build tools to run the application.
+
+### Required
+- **Modern web browser** (Chrome, Firefox, Safari, Edge)
+- Support for ES6 modules and modern JavaScript features
+
+### Optional (for testing)
+- **Node.js** (for running Playwright smoke tests)
+- **npm** (comes with Node.js)
+- **Python 3** (for local HTTP server if needed)
+
+## Quick Start
+
+The fastest way to get started:
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/yourusername/neckass-headlines.git
+    cd neckass-headlines
+    ```
+  </Step>
+
+  <Step title="Open in browser">
+    Simply open `index.html` in your browser:
+    ```bash
+    # macOS
+    open index.html
+
+    # Linux
+    xdg-open index.html
+
+    # Windows
+    start index.html
+    ```
+  </Step>
+
+  <Step title="Start using the app">
+    Click **Shuffle** to generate and cycle through headlines. No build step required!
+  </Step>
+</Steps>
+
+## Local HTTP Server (Optional)
+
+Some browser tooling, automation, or security policies may block `file://` URLs. If you need to run the app over HTTP:
+
+### Using Python
+
+```bash
+python -m http.server 8001 --directory .
+```
+
+Then open `http://127.0.0.1:8001/` in your browser.
+
+### Using Node.js
+
+If you prefer Node.js:
+
+```bash
+npx http-server -p 8001
+```
+
+## Installing Development Dependencies
+
+If you want to run the optional Playwright smoke tests:
+
+<Steps>
+  <Step title="Install dependencies">
+    ```bash
+    npm install
+    ```
+    This installs Playwright as a dev dependency.
+  </Step>
+
+  <Step title="Run smoke tests">
+    ```bash
+    npm run test:smoke
+    ```
+  </Step>
+</Steps>
+
+## Project Structure
+
+```
+neckass-headlines/
+├── index.html          # Main application page
+├── about.html          # Product overview page
+├── examples.html       # Sample headlines and tone reference
+├── styles.css          # All visual/layout styling
+├── script.js           # DOMContentLoaded bootstrap
+├── llm.js              # Tiny local/mock headline generation
+├── modules/            # Modular application logic
+│   ├── app.js         # HeadlineApp orchestration
+│   ├── state.js       # Session/navigation state
+│   ├── history.js     # Browser history and URL sync
+│   ├── storage.js     # localStorage helpers
+│   ├── ui.js          # Rendering and status updates
+│   ├── filters.js     # Query/filter logic
+│   ├── share.js       # Social/native share URLs
+│   ├── clipboard.js   # Copy functionality
+│   ├── mock-export.js # Mock front-page export
+│   ├── agent-interface.js # Agentic tool interface
+│   └── utils.js       # Shared helpers
+├── data/              # Curated data files
+│   ├── headlines.js   # Headline corpus
+│   └── llm-beats.js   # Generation phrase components
+├── icons/             # SVG assets
+├── vendor/            # Third-party dependencies
+└── tests/             # Playwright smoke tests
+```
+
+## Available npm Scripts
+
+From `package.json`:
+
+```json
+{
+  "scripts": {
+    "test:smoke": "playwright test",
+    "test:smoke:headed": "playwright test --headed"
+  }
+}
+```
+
+- **`npm run test:smoke`** - Run Playwright tests in headless mode
+- **`npm run test:smoke:headed`** - Run Playwright tests with visible browser
+
+## Bootstrap Sequence
+
+Understanding how the app initializes:
+
+<Steps>
+  <Step title="HTML loads scripts">
+    `index.html` loads data, vendor, and module scripts in order
+  </Step>
+
+  <Step title="App class defined">
+    `modules/app.js` defines `window.Neckass.HeadlineApp` and helper functions
+  </Step>
+
+  <Step title="LLM client registered">
+    `llm.js` registers the tiny-model generation client
+  </Step>
+
+  <Step title="Bootstrap runs">
+    `script.js` listens for `DOMContentLoaded`, validates dependencies, and calls `app.init()`
+  </Step>
+</Steps>
+
+## Development Philosophy
+
+- **Static-first**: No build pipeline. `index.html` runs directly from files.
+- **Zero dependencies at runtime**: All third-party code is vendored.
+- **State-aware**: Navigation context persisted via `localStorage` and URL params.
+- **Browser-native**: Uses modern JavaScript features without transpilation.
+
+## Key App Pages
+
+- **`index.html`** - Main generator experience with shuffle, copy, share, and export
+- **`about.html`** - Product overview and feature summary
+- **`examples.html`** - Sample headlines and tone reference
+
+## Agentic Interface
+
+For browser automation and AI agents, a tool interface is available at `window.Neckass.agent`:
+
+```js
+// Get current state
+const state = await window.Neckass.agent.call('get_state');
+
+// Shuffle to next headline
+const next = await window.Neckass.agent.call('shuffle');
+
+// Generate new headline
+const generated = await window.Neckass.agent.call('generate');
+
+// List available headlines
+const list = await window.Neckass.agent.call('list_headlines', { limit: 10 });
+```
+
+Available tools: `get_state`, `shuffle`, `previous`, `generate`, `set_filters`, `clear_filters`, `select_headline`, `list_headlines`
+
+## Next Steps
+
+- Read [Contributing Guidelines](/development/contributing) to understand the contribution workflow
+- Review [Testing Documentation](/development/testing) to learn about the Playwright test suite
+- Check `SPECIFICATIONS.md` in the repo for UI/UX and accessibility requirements

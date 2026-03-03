@@ -1,0 +1,514 @@
+---
+title: State Management
+description: localStorage persistence, URL state synchronization, and session management
+---
+
+## State Architecture
+
+Neckass Headlines maintains state across three synchronized layers:
+
+1. **In-Memory State** - Current session in `HeadlineApp` instance
+2. **localStorage** - Persistent state across sessions
+3. **URL State** - Shareable state via query parameters
+
+```
+┌──────────────────┐
+│  HeadlineApp     │  In-memory state
+│  (app instance)  │  ↕ read/write
+└──────────────────┘
+         ↕
+┌──────────────────┐
+│  localStorage    │  Persistent storage
+│  (browser API)   │  ↕ restore/persist
+└──────────────────┘
+         ↕
+┌──────────────────┐
+│  URL Parameters  │  Shareable links
+│  (query string)  │  ↕ apply/update
+└──────────────────┘
+```
+
+## In-Memory State
+
+### HeadlineApp State
+
+From `modules/app.js:42-70`, the app constructor initializes:
+
+```javascript
+class HeadlineApp {
+  constructor({ headlines, elements, storage }) {
+    // Base data
+    this.headlines = [...headlines];  // All headlines (curated + generated)
+    this.baseHeadlineCount = headlines.length;  // Count of curated headlines
+    this.headlineCache = createHeadlineCache(headlines);  // Fast lookup
+    
+    // Session state
+    this.state = storage.restore(headlines.length);  // Restored from localStorage
+    this.state.isLoading = false;
+    this.state.currentIndex = -1;
+    
+    // Navigation
+    this.state.navigationStack = [];  // History of viewed headline indexes
+    this.state.uniqueHeadlines = new Set();  // Unique viewed indexes
+    
+    // Filters
+    this.filters = sanitizeFilters(this.state.filters);
+    this.filteredIndexes = [];  // Eligible indexes after filtering
+    
+    // User preferences
+    this.favoriteHeadlines = new Set(this.state.favorites || []);
+    
+    // Generated headlines
+    this.state.generatedHeadlines = [];  // Text of generated headlines
+    
+    // Engagement tracking
+    this.dailyEngagement = this.normalizeDailyEngagement(this.state.dailyEngagement);
+    this.shuffleStreak = 0;
+    this.dailyVisitMeta = { isReturnVisitToday: false, advancedStreakToday: false };
+    
+    // Feedback
+    this.feedbackLog = this.normalizeFeedbackLog(this.state.feedbackLog);
+    
+    // Metrics
+    this.metrics = createMetricsTracker();
+  }
+}
+```
+
+### State Snapshot
+
+When persisting, the app creates a state snapshot:
+
+```javascript
+const snapshot = {
+  navigationStack: [...this.state.navigationStack],
+  uniqueHeadlines: new Set(this.state.uniqueHeadlines),
+  currentIndex: this.state.currentIndex,
+  generatedHeadlines: [...this.state.generatedHeadlines],
+  favorites: Array.from(this.favoriteHeadlines),
+  filters: { ...this.filters },
+  dailyEngagement: { ...this.dailyEngagement },
+  feedbackLog: [...this.feedbackLog]
+};
+```
+
+## localStorage Persistence
+
+### Storage Keys
+
+From `modules/storage.js:4-15`, the storage adapter uses these keys:
+
+```javascript
+const STORAGE_KEYS = {
+  // Navigation
+  viewedCount: 'headlinesViewed',           // Legacy: count of viewed headlines
+  viewedList: 'viewedHeadlines',            // Legacy: viewed list
+  navigationStack: 'navigationStack',       // Current: navigation history
+  navigationStackLegacy: 'viewedStack',     // Legacy: navigation history
+  uniqueHeadlines: 'uniqueHeadlines',       // Set of unique viewed indexes
+  
+  // Content
+  generatedHeadlines: 'generatedHeadlines', // Generated headline text
+  favorites: 'favoriteHeadlines',           // Favorited headline text
+  
+  // Configuration
+  filters: 'headlineFilters',               // Active filters
+  
+  // Engagement
+  dailyEngagement: 'dailyEngagement',       // Daily visit tracking
+  feedbackLog: 'headlineFeedbackLog'        // User feedback events
+};
+```
+
+### Legacy Migration
+
+The storage adapter automatically migrates from legacy keys:
+
+```javascript
+function resolveNavigationStack(primaryStack, legacyStack, viewedList) {
+  if (Array.isArray(primaryStack)) {
+    return primaryStack;  // Use current key
+  }
+  if (Array.isArray(legacyStack)) {
+    return legacyStack;  // Migrate from legacy key
+  }
+  return Array.isArray(viewedList) ? viewedList : [];  // Oldest fallback
+}
+```
+
+### Queued Persistence
+
+From `modules/storage.js:17-53`, writes are **queued and batched** to avoid blocking:
+
+```javascript
+function createStorageAdapter() {
+  let queuedState = null;
+  let persistScheduled = false;
+  
+  const flushPersist = () => {
+    persistScheduled = false;
+    if (!queuedState) return;
+    
+    const snapshot = queuedState;
+    queuedState = null;
+    
+    // Write all keys atomically
+    safeSetItem(STORAGE_KEYS.navigationStack, JSON.stringify(snapshot.navigationStack));
+    safeSetItem(STORAGE_KEYS.uniqueHeadlines, JSON.stringify(Array.from(snapshot.uniqueHeadlines)));
+    safeSetItem(STORAGE_KEYS.generatedHeadlines, JSON.stringify(snapshot.generatedHeadlines));
+    // ... more keys
+  };
+  
+  return {
+    persist(state) {
+      queuedState = cloneStateSnapshot(state);  // Queue the write
+      
+      if (persistScheduled) return;  // Already scheduled
+      persistScheduled = true;
+      scheduleBackgroundTask(flushPersist);  // Use requestIdleCallback if available
+    }
+  };
+}
+```
+
+**Benefits:**
+- Non-blocking: Uses `requestIdleCallback` when available
+- Batched: Multiple rapid state changes result in one write
+- Atomic: All keys written together or none at all
+
+### Restore Logic
+
+From `modules/storage.js:56-89`, restore validates and sanitizes:
+
+```javascript
+restore(baseHeadlineCount) {
+  // Load all keys
+  const storedStack = safeJsonParse(localStorage.getItem(STORAGE_KEYS.navigationStack), null);
+  const generatedHeadlines = safeJsonParse(localStorage.getItem(STORAGE_KEYS.generatedHeadlines), []);
+  
+  // Calculate total headlines
+  const totalHeadlines = baseHeadlineCount + generatedHeadlines.length;
+  
+  // Sanitize indexes (remove invalid/out-of-bounds)
+  const rawStack = resolveNavigationStack(storedStack, ...);
+  const sanitizedStack = rawStack.filter(index => 
+    isValidHeadlineIndex(index, totalHeadlines)
+  );
+  
+  return {
+    navigationStack: sanitizedStack,
+    uniqueHeadlines: new Set(sanitizedStack),
+    currentIndex: sanitizedStack[sanitizedStack.length - 1] ?? -1,
+    generatedHeadlines: Array.isArray(generatedHeadlines) ? generatedHeadlines.filter(Boolean) : [],
+    favorites: sanitizeArray(favorites),
+    filters: sanitizeFilters(filters)
+  };
+}
+```
+
+**Validation ensures:**
+- Indexes are within bounds
+- Arrays are actually arrays
+- Filters use allowed values
+- Generated headlines are non-empty strings
+
+## URL State
+
+### Query Parameters
+
+From `modules/history.js:4-20`, URL state includes:
+
+```javascript
+function getUrlState() {
+  const params = new URLSearchParams(window.location.search);
+  
+  return {
+    headline: params.get('headline'),        // Headline slug or index
+    hasHeadlineParam: params.has('headline'),
+    section: params.get('section'),          // Filter: section
+    query: params.get('q'),                  // Filter: search query
+    source: params.get('source'),            // Filter: source (auto/generated/curated)
+    panel: params.get('panel'),              // UI: panel view
+    layout: params.get('layout')             // UI: layout style
+  };
+}
+```
+
+### Building URLs
+
+From `modules/history.js:22-65`, canonical URLs include state:
+
+```javascript
+function buildHeadlineUrl({ index, headlines, filters, identifierFromIndex, isValidHeadlineIndex }) {
+  const url = new URL(window.location.href);
+  url.hash = '';  // Clear hash
+  
+  // Add headline identifier
+  if (isValidHeadlineIndex(index, headlines.length)) {
+    const identifier = identifierFromIndex(index);  // Slug from headline text
+    url.searchParams.set('headline', identifier);
+  } else {
+    url.searchParams.delete('headline');
+  }
+  
+  // Add filters (only if non-default)
+  if (filters.section && filters.section !== 'latest') {
+    url.searchParams.set('section', filters.section);
+  } else {
+    url.searchParams.delete('section');
+  }
+  
+  // ... more filter parameters
+  
+  return url.toString();
+}
+```
+
+### History Management
+
+From `modules/history.js:67-85`, uses History API:
+
+```javascript
+function updateHistoryState({ mode, url, state }) {
+  if (mode === 'push') {
+    window.history.pushState(state, '', url);  // New history entry
+  } else if (mode === 'replace') {
+    window.history.replaceState(state, '', url);  // Replace current entry
+  }
+}
+```
+
+**When to push vs replace:**
+- **Push** - User action that should be navigable (shuffle, select headline)
+- **Replace** - Filter change that updates current view (set section, search)
+
+### URL Restoration
+
+On app init, URL state is applied:
+
+```javascript
+applyUrlState() {
+  const urlState = getUrlState();
+  
+  // Apply filters from URL
+  if (urlState.section) this.filters.section = urlState.section;
+  if (urlState.query) this.filters.query = urlState.query;
+  if (urlState.source) this.filters.source = urlState.source;
+  
+  // Restore specific headline
+  if (urlState.headline) {
+    const index = this.findHeadlineIndex(urlState.headline);
+    if (index !== -1) {
+      this.state.currentIndex = index;
+    }
+  }
+}
+```
+
+## Synchronization Flow
+
+### User Action → State Update
+
+```
+1. User clicks Shuffle button
+         ↓
+2. HeadlineApp.handleNext()
+         ↓
+3. Select/generate new headline
+         ↓
+4. Update this.state.navigationStack
+         ↓
+5. Update this.state.currentIndex
+         ↓
+6. storage.persist(state)  ← Queue localStorage write
+         ↓
+7. updateHistoryState()    ← Push to browser history
+         ↓
+8. renderHeadline()        ← Update DOM
+         ↓
+9. updateDocumentMetadata() ← Update <head> tags
+         ↓
+10. updateSocialShareLinks() ← Update share URLs
+```
+
+### Browser Back/Forward
+
+```
+1. User clicks browser back button
+         ↓
+2. 'popstate' event fires
+         ↓
+3. getUrlState()           ← Read URL parameters
+         ↓
+4. findHeadlineIndex()     ← Match headline identifier
+         ↓
+5. Update this.state.currentIndex
+         ↓
+6. renderHeadline()        ← Re-render headline
+         ↓
+7. NO storage.persist()    ← Don't persist navigation stack
+         ↓
+8. NO updateHistoryState() ← History already updated by browser
+```
+
+## Daily Engagement Tracking
+
+### Storage Format
+
+From `modules/storage.js:74`, daily engagement is stored as:
+
+```javascript
+{
+  dailyEngagement: {
+    firstVisit: '2026-03-03T00:00:00.000Z',  // ISO date of first visit
+    lastVisit: '2026-03-03T14:32:18.234Z',   // ISO timestamp of last visit
+    visitDates: ['2026-03-01', '2026-03-02', '2026-03-03'],  // Date strings
+    currentStreak: 3,                         // Consecutive days
+    longestStreak: 5,                         // Personal best
+    todayReturnCount: 2                       // Returns today (same day)
+  }
+}
+```
+
+### Streak Calculation
+
+On app init, streaks are recalculated:
+
+```javascript
+refreshDailyEngagement() {
+  const today = new Date().toISOString().split('T')[0];  // YYYY-MM-DD
+  const lastDate = this.dailyEngagement.visitDates[this.dailyEngagement.visitDates.length - 1];
+  
+  if (lastDate === today) {
+    // Same-day return
+    this.dailyEngagement.todayReturnCount++;
+    this.dailyVisitMeta.isReturnVisitToday = true;
+  } else {
+    // New day
+    this.dailyEngagement.visitDates.push(today);
+    this.dailyEngagement.todayReturnCount = 1;
+    
+    // Check if consecutive
+    const yesterday = getYesterdayDate();
+    if (lastDate === yesterday) {
+      this.dailyEngagement.currentStreak++;
+      this.dailyVisitMeta.advancedStreakToday = true;
+    } else {
+      this.dailyEngagement.currentStreak = 1;  // Streak broken
+    }
+  }
+  
+  // Update longest streak
+  if (this.dailyEngagement.currentStreak > this.dailyEngagement.longestStreak) {
+    this.dailyEngagement.longestStreak = this.dailyEngagement.currentStreak;
+  }
+  
+  this.storage.persist(this.state);
+}
+```
+
+## Generated Headlines
+
+### Storage Format
+
+Generated headlines are stored as an array of strings:
+
+```javascript
+[
+  "Breaking: Someone online frames local as the real story and unveils their meditation app; trending",
+  "Local desk influencer announces their cryptocurrency while AI watchers refresh dashboards; everyone reacts",
+  // ... more generated headlines
+]
+```
+
+### Deduplication
+
+From `modules/state.js:16-27`, generated headlines are deduplicated:
+
+```javascript
+function appendGeneratedHeadlines({ headlines, headlineCache, generatedHeadlines }) {
+  generatedHeadlines.forEach((headlineText) => {
+    if (!headlineText || typeof headlineText !== 'string') return;
+    
+    const normalized = headlineText.trim();
+    if (!normalized) return;
+    
+    if (headlineCache.has(normalized)) return;  // Already exists
+    
+    headlines.push(normalized);  // Add to end of array
+    headlineCache.set(normalized, headlines.length - 1);  // Update cache
+  });
+}
+```
+
+### Integration
+
+Generated headlines are appended to the curated list:
+
+```javascript
+this.headlines = [...curatedHeadlines];  // Start with curated (indexes 0-999)
+appendGeneratedHeadlines({              // Append generated (indexes 1000+)
+  headlines: this.headlines,
+  headlineCache: this.headlineCache,
+  generatedHeadlines: this.state.generatedHeadlines
+});
+```
+
+This allows:
+- Seamless navigation between curated and generated
+- Filters can target `source: 'generated'` by checking `index >= baseHeadlineCount`
+- Generated headlines persist across sessions
+
+## Error Handling
+
+### localStorage Unavailable
+
+All storage operations use try-catch:
+
+```javascript
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (error) {
+    // Quota exceeded or private mode
+    // Silently fail - app continues with session-only state
+    return;
+  }
+}
+
+function safeGetItem(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch (error) {
+    return null;  // Treat as missing
+  }
+}
+```
+
+The app **never breaks** if localStorage is unavailable - it just won't persist state.
+
+### Invalid State
+
+Restore validates all data:
+
+```javascript
+// Sanitize navigation stack
+const sanitizedStack = rawStack.filter(index => 
+  isValidHeadlineIndex(index, totalHeadlines)
+);
+
+// Ensure arrays
+const favorites = Array.isArray(storedFavorites) 
+  ? storedFavorites.filter(Boolean) 
+  : [];
+
+// Validate filters
+const filters = sanitizeFilters(storedFilters || {});
+```
+
+Corrupted or invalid state is silently repaired with sensible defaults.
+
+## Next Steps
+
+- [LLM Client](/architecture/llm-client) - Generation pipeline and caching
+- [Module System](/architecture/modules) - Detailed module responsibilities

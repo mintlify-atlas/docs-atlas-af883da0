@@ -1,0 +1,297 @@
+---
+title: Keyboard Navigation
+description: Navigate Neckass Headlines entirely with keyboard shortcuts for efficient headline browsing
+---
+
+Neckass Headlines is fully keyboard accessible, with dedicated shortcuts for core navigation actions.
+
+## Core Navigation Shortcuts
+
+### Shuffle (Next Headline)
+
+Advance to the next headline using:
+
+- **Arrow Right** (`→`)
+- **Arrow Down** (`↓`)
+
+Both keys trigger the same shuffle action:
+
+```javascript
+// From modules/app.js
+const forwardKeys = ['ArrowRight', 'ArrowDown'];
+
+if (forwardKeys.includes(event.key)) {
+  event.preventDefault();
+  this.handleNext();
+}
+```
+
+<Tip>
+Arrow Down is particularly convenient when browsing vertically on a laptop, while Arrow Right works well for horizontal navigation patterns.
+</Tip>
+
+### Previous Headline
+
+Return to the previous headline using:
+
+- **Arrow Left** (`←`)
+- **Arrow Up** (`↑`)
+
+Both keys navigate backward through history:
+
+```javascript
+const backwardKeys = ['ArrowLeft', 'ArrowUp'];
+
+if (backwardKeys.includes(event.key)) {
+  event.preventDefault();
+  this.handlePrevious();
+}
+```
+
+<Note>
+The Previous action only works if you have navigation history. The first headline of a session has no previous state.
+</Note>
+
+## Keyboard Shortcut Behavior
+
+### Event Prevention
+
+Arrow key shortcuts prevent default browser scrolling:
+
+```javascript
+event.preventDefault();
+```
+
+This ensures:
+
+- Arrow keys don't scroll the page
+- Focus remains on content, not browser chrome
+- Smooth headline transitions without visual jumping
+
+### Focus Context Detection
+
+Keyboard shortcuts are disabled when focus is inside editable elements:
+
+```javascript
+handleDirectionalNavigation = (event) => {
+  const tag = document.activeElement?.tagName?.toLowerCase();
+  const isEditable = document.activeElement?.isContentEditable;
+  
+  if (isEditable || ['input', 'textarea', 'select', 'button'].includes(tag)) {
+    return; // Don't intercept in editable contexts
+  }
+  
+  // ... handle arrow keys
+};
+```
+
+**Prevents conflicts with**:
+
+- Text input fields (if added in the future)
+- Textareas for user content
+- Select dropdowns
+- Button focus states
+- Contenteditable regions
+
+<Warning>
+If you're focused on a button, arrow keys won't trigger navigation. Press Tab to move focus to the page content, then use arrow keys.
+</Warning>
+
+## Standard Keyboard Interactions
+
+In addition to custom shortcuts, all interactive elements support standard keyboard patterns:
+
+### Tab Navigation
+
+Use **Tab** and **Shift+Tab** to move between interactive elements:
+
+- Buttons (Shuffle, Previous, Copy, Share, Export)
+- Social share links (Twitter, Facebook, Reddit)
+- Quick action buttons on mobile
+- Clear filters button (when filters are active)
+
+### Focus Indicators
+
+Visible focus outlines appear on all interactive elements:
+
+```css
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+```
+
+<Tip>
+The `:focus-visible` selector ensures focus outlines appear for keyboard users but not mouse clicks.
+</Tip>
+
+### Button Activation
+
+Activate focused buttons with:
+
+- **Enter**
+- **Space**
+
+### Link Activation
+
+Activate focused links with:
+
+- **Enter**
+
+## Skip Link
+
+A skip link provides quick access to the main headline:
+
+```html
+<a class="skip-link" href="#headline">Skip to featured headline</a>
+```
+
+**Usage**:
+
+1. Press **Tab** on page load
+2. Skip link becomes visible
+3. Press **Enter** to jump directly to the headline
+
+<Note>
+The skip link is hidden by default and only appears on keyboard focus, following WCAG 2.1 best practices.
+</Note>
+
+## Accessible Headline Focus
+
+The headline element is focusable for screen reader re-announcement:
+
+```html
+<h2 id="headline" tabindex="0" aria-label="Headline">...</h2>
+```
+
+When the headline updates:
+
+1. Focus remains manageable via Tab order
+2. Screen readers can re-focus to hear the new headline
+3. `tabindex="0"` makes the heading keyboard-accessible
+
+## Loading States
+
+During headline transitions:
+
+- **Shuffle button**: Disabled to prevent rapid clicks
+- **Previous button**: Disabled if loading or no history
+- **Arrow keys**: Still trigger actions but may queue if already loading
+
+```javascript
+this.toggleLoader(true); // Disables buttons
+await this.renderNewHeadline();
+this.toggleLoader(false); // Re-enables buttons
+```
+
+<Warning>
+If you press an arrow key while a headline is loading, the app may queue the action or ignore it depending on the current async state.
+</Warning>
+
+## Screen Reader Announcements
+
+### Live Regions
+
+Several elements use `aria-live="polite"` for non-intrusive updates:
+
+```html
+<!-- Loader status -->
+<div id="loader" role="status" aria-live="polite">Loading...</div>
+
+<!-- Copy status -->
+<p id="copy-status" role="status" aria-live="polite"></p>
+
+<!-- Filter status -->
+<div class="filter-reset" aria-live="polite">
+  <p id="filter-status">All headlines</p>
+</div>
+```
+
+### Status Updates
+
+Screen readers announce:
+
+- "Loading..." when shuffling
+- "Headline copied to clipboard!" after copy
+- "Section: Tech" when filters change
+- "Downloaded front page." after export
+
+<Tip>
+`aria-live="polite"` waits for the user to finish their current action before announcing, preventing interruptions.
+</Tip>
+
+## Keyboard Event Listener
+
+The keyboard navigation system is registered on app initialization:
+
+```javascript
+document.addEventListener('keydown', this.handleDirectionalNavigation);
+```
+
+This global listener:
+
+- Captures all keydown events on the document
+- Filters for arrow keys only
+- Checks focus context before acting
+- Prevents default behavior for matched keys
+
+## Mobile Keyboard Behavior
+
+On mobile devices:
+
+- Touch targets are large enough for easy tapping (minimum 44×44px)
+- Arrow key shortcuts work if using an external keyboard
+- Quick action buttons provide single-tap access to all features
+- Native share sheet is available for easy sharing
+
+## Accessibility Checklist
+
+All keyboard interactions meet WCAG 2.1 Level AA standards:
+
+- ✅ All functionality available via keyboard
+- ✅ Visible focus indicators on all interactive elements
+- ✅ No keyboard traps (focus can always move)
+- ✅ Logical tab order matching visual layout
+- ✅ Skip link for quick navigation to main content
+- ✅ Screen reader announcements for dynamic updates
+- ✅ Disabled buttons excluded from tab order
+- ✅ ARIA labels on all icon-only buttons
+
+<Note>
+The app is tested with NVDA (Windows), JAWS (Windows), and VoiceOver (macOS/iOS) screen readers.
+</Note>
+
+## Keyboard Navigation Tips
+
+### Efficient Browsing Pattern
+
+1. **Load the page** - Headline loads automatically
+2. **Press Arrow Right** - Shuffle to next headline
+3. **Press Arrow Right again** - Keep shuffling
+4. **Found something good?** - Press Tab to focus Copy button
+5. **Press Enter** - Copy headline to clipboard
+6. **Press Tab** to social share links, **Enter** to share
+
+### Quick Copy Workflow
+
+1. **Arrow Right** until you find a headline you like
+2. **Tab** to Copy button
+3. **Enter** to copy
+4. **Cmd+Tab** (macOS) or **Alt+Tab** (Windows) to switch apps
+5. **Cmd+V** or **Ctrl+V** to paste
+
+<Tip>
+You can navigate through dozens of headlines in seconds using just arrow keys, making it faster than clicking.
+</Tip>
+
+## Future Enhancements
+
+Planned keyboard shortcuts (not yet implemented):
+
+- **C** - Quick copy without tabbing to button
+- **S** - Open native share sheet
+- **F** - Toggle favorite on current headline
+- **/** - Focus search input (when search UI is added)
+- **Esc** - Clear filters (when filters UI is expanded)
+
+These are documented in the specifications but not yet implemented in the codebase.

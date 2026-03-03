@@ -1,0 +1,437 @@
+---
+title: list_headlines
+description: Retrieve a paginated list of available headlines with identifiers and metadata
+---
+
+## Overview
+
+The `list_headlines` method returns a paginated list of headlines from the headline pool. It provides access to headline text, identifiers, and source information for browsing, searching, or building custom navigation interfaces.
+
+## Method Signature
+
+```javascript
+await window.Neckass.agent.call('list_headlines', args)
+```
+
+## Parameters
+
+<ParamField path="offset" type="number" default={0}>
+  The starting position in the headline list (0-based index). Use for pagination.
+</ParamField>
+
+<ParamField path="limit" type="number" default={25}>
+  Maximum number of headlines to return. Clamped to 100 maximum, 1 minimum.
+</ParamField>
+
+<ParamField path="scope" type="string" default="eligible">
+  Which headline pool to list from:
+  - `"eligible"` - Only headlines matching current filters (default)
+  - `"all"` - All headlines regardless of filters
+</ParamField>
+
+## Return Value
+
+Returns an object with two properties:
+
+<ResponseField name="items" type="array">
+  Array of headline objects:
+  
+  <Expandable title="Headline object structure">
+    <ResponseField name="index" type="number">
+      The headline's position in the internal headlines array
+    </ResponseField>
+    <ResponseField name="identifier" type="string">
+      Stable identifier (e.g., `"curated-42"` or `"generated-5"`)
+    </ResponseField>
+    <ResponseField name="headline" type="string">
+      The headline text
+    </ResponseField>
+    <ResponseField name="source" type="string">
+      Source type: `"curated"` or `"generated"`
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="snapshot" type="object">
+  Current application state snapshot (same structure as `get_state` return value)
+</ResponseField>
+
+## Usage Examples
+
+### List First 10 Headlines
+
+```javascript
+const result = await window.Neckass.agent.call('list_headlines', {
+  limit: 10
+});
+
+console.log(`Found ${result.items.length} headlines`);
+result.items.forEach((item, i) => {
+  console.log(`${i + 1}. ${item.headline} (${item.source})`);
+});
+```
+
+### Paginate Through Headlines
+
+```javascript
+const pageSize = 25;
+let offset = 0;
+let hasMore = true;
+
+while (hasMore) {
+  const result = await window.Neckass.agent.call('list_headlines', {
+    offset,
+    limit: pageSize
+  });
+  
+  console.log(`Page ${offset / pageSize + 1}:`);
+  result.items.forEach(item => console.log(`  ${item.headline}`));
+  
+  hasMore = result.items.length === pageSize;
+  offset += pageSize;
+}
+```
+
+### List All Headlines
+
+```javascript
+// Use large limit to get all
+const result = await window.Neckass.agent.call('list_headlines', {
+  limit: 100,
+  scope: 'all'
+});
+
+console.log(`Total headlines: ${result.snapshot.totalHeadlines}`);
+console.log(`Retrieved: ${result.items.length}`);
+```
+
+### List Filtered Headlines
+
+```javascript
+// Apply filter
+await window.Neckass.agent.call('set_filters', { section: 'sports' });
+
+// List only sports headlines (scope: 'eligible' is default)
+const result = await window.Neckass.agent.call('list_headlines', {
+  limit: 50
+});
+
+console.log(`Sports headlines: ${result.items.length}`);
+result.items.forEach(item => console.log(item.headline));
+```
+
+### Compare Eligible vs All
+
+```javascript
+// Set restrictive filter
+await window.Neckass.agent.call('set_filters', { 
+  section: 'local',
+  query: 'mayor'
+});
+
+// Get eligible (filtered) headlines
+const eligible = await window.Neckass.agent.call('list_headlines', {
+  scope: 'eligible'
+});
+
+// Get all headlines
+const all = await window.Neckass.agent.call('list_headlines', {
+  scope: 'all',
+  limit: 100
+});
+
+console.log(`Eligible: ${eligible.items.length}`);
+console.log(`Total: ${all.items.length}`);
+console.log(`Filtered out: ${all.items.length - eligible.items.length}`);
+```
+
+### Search for Specific Headlines
+
+```javascript
+const result = await window.Neckass.agent.call('list_headlines', {
+  limit: 100,
+  scope: 'all'
+});
+
+// Find headlines containing "cat"
+const catHeadlines = result.items.filter(item => 
+  item.headline.toLowerCase().includes('cat')
+);
+
+console.log(`Found ${catHeadlines.length} headlines about cats:`);
+catHeadlines.forEach(item => console.log(item.headline));
+```
+
+### List Only Generated Headlines
+
+```javascript
+const result = await window.Neckass.agent.call('list_headlines', {
+  limit: 100,
+  scope: 'all'
+});
+
+const generated = result.items.filter(item => item.source === 'generated');
+
+console.log(`Generated headlines: ${generated.length}`);
+generated.forEach(item => {
+  console.log(`${item.identifier}: ${item.headline}`);
+});
+```
+
+### Build Custom Navigation Menu
+
+```javascript
+const result = await window.Neckass.agent.call('list_headlines', {
+  limit: 20
+});
+
+const menu = result.items.map(item => ({
+  label: item.headline.substring(0, 50) + '...',
+  identifier: item.identifier,
+  onClick: async () => {
+    await window.Neckass.agent.call('select_headline', {
+      identifier: item.identifier
+    });
+  }
+}));
+
+console.log('Navigation menu:', menu);
+```
+
+### Export Headlines to JSON
+
+```javascript
+const result = await window.Neckass.agent.call('list_headlines', {
+  limit: 100,
+  scope: 'all'
+});
+
+const json = JSON.stringify(result.items, null, 2);
+console.log('Headlines JSON:', json);
+
+// Or save to file (in Node.js/browser with file API)
+// fs.writeFileSync('headlines.json', json);
+```
+
+### Get Random Headline from List
+
+```javascript
+const result = await window.Neckass.agent.call('list_headlines', {
+  limit: 100
+});
+
+if (result.items.length > 0) {
+  const randomIndex = Math.floor(Math.random() * result.items.length);
+  const randomItem = result.items[randomIndex];
+  
+  await window.Neckass.agent.call('select_headline', {
+    identifier: randomItem.identifier
+  });
+  
+  console.log(`Jumped to random headline: ${randomItem.headline}`);
+}
+```
+
+### Check Pool Size Before Shuffling
+
+```javascript
+const result = await window.Neckass.agent.call('list_headlines');
+
+if (result.items.length === 0) {
+  console.log('No eligible headlines, clearing filters...');
+  await window.Neckass.agent.call('clear_filters');
+} else if (result.items.length < 5) {
+  console.log('Small pool, consider adjusting filters');
+} else {
+  console.log(`Good pool size: ${result.items.length}, shuffling...`);
+  await window.Neckass.agent.call('shuffle');
+}
+```
+
+## Implementation Details
+
+The method calls `app.listHeadlinesForAgent()` internally:
+
+```javascript
+async list_headlines(args = {}) {
+    return {
+        items: app.listHeadlinesForAgent(args),
+        snapshot: app.getAgentSnapshot()
+    };
+}
+```
+
+The `listHeadlinesForAgent()` method:
+1. Determines pool based on scope (all vs eligible)
+2. Applies offset and limit (with validation)
+3. Maps indices to headline objects with metadata
+4. Returns array slice
+
+Source: `modules/agent-interface.js:39-44`, `modules/app.js:1765-1778`
+
+### Implementation Code
+
+```javascript
+listHeadlinesForAgent({ offset = 0, limit = 25, scope = 'eligible' } = {}) {
+    const pool = scope === 'all'
+        ? this.headlines.map((_, index) => index)
+        : [...this.filteredIndexes];
+    
+    const start = Math.max(0, Number.parseInt(offset, 10) || 0);
+    const max = Math.min(100, Math.max(1, Number.parseInt(limit, 10) || 25));
+
+    return pool.slice(start, start + max).map((index) => ({
+        index,
+        identifier: this.identifierFromIndex(index),
+        headline: this.headlines[index],
+        source: index >= this.baseHeadlineCount ? 'generated' : 'curated'
+    }));
+}
+```
+
+## Parameter Validation
+
+### offset
+
+- Parsed as integer
+- Clamped to minimum of 0
+- Values beyond pool size return empty array
+
+### limit
+
+- Parsed as integer
+- Clamped to range [1, 100]
+- Default is 25
+
+### scope
+
+- Must be `"eligible"` or `"all"`
+- Invalid values default to `"eligible"`
+
+## Pagination Patterns
+
+### Page-Based Pagination
+
+```javascript
+const pageSize = 25;
+const pageNumber = 2; // Second page (0-indexed)
+
+const result = await window.Neckass.agent.call('list_headlines', {
+  offset: pageNumber * pageSize,
+  limit: pageSize
+});
+```
+
+### Cursor-Based Pagination
+
+```javascript
+let lastIndex = 0;
+
+while (lastIndex < totalHeadlines) {
+  const result = await window.Neckass.agent.call('list_headlines', {
+    offset: lastIndex,
+    limit: 25
+  });
+  
+  if (result.items.length === 0) break;
+  
+  // Process items
+  result.items.forEach(item => console.log(item.headline));
+  
+  lastIndex += result.items.length;
+}
+```
+
+### Infinite Scroll Pattern
+
+```javascript
+let allItems = [];
+let offset = 0;
+const batchSize = 50;
+
+async function loadMore() {
+  const result = await window.Neckass.agent.call('list_headlines', {
+    offset,
+    limit: batchSize
+  });
+  
+  allItems = allItems.concat(result.items);
+  offset += result.items.length;
+  
+  return result.items.length > 0;
+}
+
+// Load first batch
+if (await loadMore()) {
+  console.log('More items available');
+}
+```
+
+## Filter Integration
+
+The `scope` parameter determines filter behavior:
+
+### scope: "eligible" (default)
+
+- Returns only headlines matching active filters
+- Pool size matches `snapshot.poolSize`
+- Useful for building filtered navigation
+
+### scope: "all"
+
+- Returns all headlines regardless of filters
+- Pool size matches `snapshot.totalHeadlines`
+- Useful for browsing full catalog
+
+## Performance Considerations
+
+### Memory
+
+- List is generated on each call (not cached)
+- Large limits (100) are acceptable for typical pool sizes
+- No performance penalty for repeated calls
+
+### Pagination Strategy
+
+- For pools < 100 headlines: request all at once
+- For pools > 100 headlines: paginate with offset/limit
+- Use `scope: "eligible"` to reduce data transfer
+
+## Error Handling
+
+The method is fault-tolerant and doesn't throw errors:
+
+```javascript
+// Invalid parameters are sanitized
+const result = await window.Neckass.agent.call('list_headlines', {
+  offset: -10,    // Becomes 0
+  limit: 500,     // Clamped to 100
+  scope: 'invalid' // Defaults to 'eligible'
+});
+
+console.log(result.items.length); // Returns valid results
+```
+
+### Edge Cases
+
+- **Empty pool**: Returns empty array `[]`
+- **Offset beyond pool**: Returns empty array `[]`
+- **No filters active with scope="eligible"**: Returns all headlines
+- **Filters exclude all with scope="eligible"**: Returns empty array `[]`
+
+## Related Methods
+
+<CardGroup cols={2}>
+  <Card title="select_headline" icon="hand-pointer" href="/api/select-headline">
+    Navigate to a headline from the list
+  </Card>
+  <Card title="get_state" icon="circle-info" href="/api/get-state">
+    Check current pool size and filters
+  </Card>
+  <Card title="set_filters" icon="filter" href="/api/filters">
+    Filter the headline pool
+  </Card>
+  <Card title="shuffle" icon="shuffle" href="/api/shuffle">
+    Select random headline from the pool
+  </Card>
+</CardGroup>

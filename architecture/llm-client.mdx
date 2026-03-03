@@ -1,0 +1,686 @@
+---
+title: LLM Client Architecture
+description: Tiny on-device headline generation client and v2 heuristic pipeline
+---
+
+## Overview
+
+The **Tiny LLM Client** (`llm.js`) provides on-device headline generation without any server calls or external LLM dependencies. It uses a **heuristic-based generation pipeline** that combines phrase pools, scoring, and filtering to create satirical headlines.
+
+### Design Goals
+
+- **Zero Network** - No API calls, works offline and on `file://`
+- **Fast** - Generation completes in 280-720ms with jitter
+- **Deterministic** - Optional seed for reproducible output
+- **Quality Guardrails** - Length limits, duplicate suppression, tone filtering
+- **Progressive Enhancement** - Uses modern APIs when available, falls back gracefully
+
+## Architecture
+
+```
+┌────────────────────────────────────────┐
+│  tinyLlmClient.generateHeadline()      │
+│                                        │
+│  1. Context Assembly                   │
+│     ├─ Parse options (section, query) │
+│     ├─ Normalize text                  │
+│     └─ Create RNG (seeded or random)   │
+│                                        │
+│  2. Candidate Synthesis                │
+│     ├─ Build 12-24 candidates          │
+│     ├─ Weight by section               │
+│     ├─ Mix template patterns           │
+│     └─ Inject query hints              │
+│                                        │
+│  3. Scoring & Ranking                  │
+│     ├─ Section match score             │
+│     ├─ Query relevance score           │
+│     ├─ Novelty vs recent history       │
+│     ├─ Length target score             │
+│     └─ Tone safety check               │
+│                                        │
+│  4. Selection & Fallback               │
+│     ├─ Pick top candidate > threshold  │
+│     ├─ Retry with lower threshold      │
+│     └─ Throw error if none eligible    │
+│                                        │
+│  5. Persistence & Return               │
+│     ├─ Add to recent cache             │
+│     ├─ Save to localStorage            │
+│     └─ Return result object            │
+└────────────────────────────────────────┘
+```
+
+## Generation Pipeline
+
+### 1. Context Assembly
+
+From `llm.js:326-336`, the request is normalized:
+
+```javascript
+async function generateHeadline(options = {}) {
+  const request = {
+    section: normalizeText(options.section || 'latest').toLowerCase(),
+    source: options.source || 'any',
+    query: normalizeText(options.query || ''),
+    exclude: Array.isArray(options.exclude) ? options.exclude : [],
+    seed: Number.isInteger(options.seed) ? options.seed : null
+  };
+  
+  const rng = request.seed !== null ? createSeededRng(request.seed) : null;
+  // ...
+}
+```
+
+**Random Number Generation:**
+
+From `llm.js:98-114`, uses modern crypto API when available:
+
+```javascript
+function getRandom(rng) {
+  if (typeof rng === 'function') return rng();  // Seeded RNG for determinism
+  
+  // Try crypto.getRandomValues() for better entropy
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const buffer = new Uint32Array(1);
+    crypto.getRandomValues(buffer);
+    return buffer[0] / 0x100000000;
+  }
+  
+  return Math.random();  // Fallback
+}
+```
+
+### 2. Candidate Synthesis
+
+From `llm.js:266-285`, build candidate pool:
+
+```javascript
+function buildCandidates(options, rng) {
+  const total = CANDIDATE_MIN + Math.floor(getRandom(rng) * (CANDIDATE_MAX - CANDIDATE_MIN + 1));
+  const section = options.section && SECTION_HINTS[options.section] ? options.section : 'latest';
+  
+  return Array.from({ length: total }).map(() => {
+    // Weight section selection
+    const weightedSection = section === 'latest' && getRandom(rng) < 0.35
+      ? pick(['world', 'culture', 'tech', 'oddities'], rng)  // 35% other sections
+      : section;
+    
+    const payload = buildPayload(weightedSection, rng);
+    const generated = synthesizeCandidate(payload, rng);
+    
+    // Inject query hint if provided
+    const queryToken = tokenize(options.query || '')[0];
+    const headline = queryToken && getRandom(rng) < 0.55 && !generated.toLowerCase().includes(queryToken)
+      ? clampHeadlineLength(`${generated} as ${queryToken} chatter keeps climbing`)
+      : generated;
+    
+    return {
+      headline,
+      section: weightedSection
+    };
+  });
+}
+```
+
+### 3. Phrase Pools
+
+From `data/llm-beats.js` (referenced in `llm.js:2`), phrase pools provide components:
+
+```javascript
+const BEATS = {
+  desks: ['Breaking', 'Local desk', 'World desk', 'Culture desk'],
+  subjects: [
+    'someone online',
+    'influencer',
+    'startup founder',
+    { text: 'podcaster', pronouns: { possessive: 'their' } },
+    // ... more subjects
+  ],
+  verbs: ['announces', 'unveils', 'reveals', 'launches', 'frames'],
+  objects: ['cryptocurrency', 'meditation app', '{possessive} newsletter', 'AI chatbot'],
+  connectors: ['because', 'while', 'after', 'despite'],
+  twists: [
+    '{possessive} Discord got hacked',
+    'the algorithm changed',
+    'nobody asked',
+    // ... more twists
+  ],
+  impacts: ['everyone reacts', 'trending', 'the internet weighs in']
+};
+```
+
+### 4. Payload Building
+
+From `llm.js:182-200`, assemble phrase components:
+
+```javascript
+function buildPayload(section, rng) {
+  const subject = pick(BEATS.subjects, rng);
+  const normalizedSubject = typeof subject === 'object' ? subject.text : subject;
+  const possessive = typeof subject === 'object' ? subject?.pronouns?.possessive || 'their' : 'their';
+  
+  // Replace pronoun placeholders
+  const objectPhrase = String(pick(BEATS.objects, rng) || '').replace('{possessive}', possessive);
+  const twist = String(pick(BEATS.twists, rng) || '').replace('{possessive}', possessive);
+  
+  return {
+    desk: pick(BEATS.desks, rng),
+    subject: normalizedSubject || 'someone online',
+    verb: pick(BEATS.verbs, rng),
+    object: objectPhrase,
+    connector: pick(BEATS.connectors, rng),
+    twist,
+    impact: pick(BEATS.impacts, rng),
+    section,
+    marker: pick(SECTION_HINTS[section] || SECTION_HINTS.latest, rng)
+  };
+}
+```
+
+### 5. Template Patterns
+
+From `llm.js:202-211`, synthesize from templates:
+
+```javascript
+function synthesizeCandidate(payload, rng) {
+  const patterns = [
+    `${payload.desk} ${payload.subject} ${payload.verb} ${payload.object} ${payload.connector} ${payload.twist}; ${payload.impact}`,
+    `${payload.subject} ${payload.verb} ${payload.object} while ${payload.marker} watchers refresh dashboards; ${payload.impact}`,
+    `Breaking: ${payload.subject} ${payload.verb} ${payload.object}, because ${payload.twist}; ${payload.impact}`,
+    `${payload.desk} ${payload.subject} frames ${payload.marker} as the real story and ${payload.verb} ${payload.object}; ${payload.impact}`
+  ];
+  
+  return clampHeadlineLength(formatSentenceCase(pick(patterns, rng)));
+}
+```
+
+**Output examples:**
+
+- "Breaking: Influencer announces cryptocurrency, because nobody asked; everyone reacts"
+- "Local desk podcaster frames AI as the real story and unveils their meditation app; trending"
+- "Startup founder reveals AI chatbot while tech watchers refresh dashboards; the internet weighs in"
+
+## Scoring and Ranking
+
+### Score Components
+
+From `llm.js:218-264`, candidates are scored:
+
+```javascript
+function scoreCandidate(candidate, options, recentHeadlines) {
+  const reasonCodes = [];
+  let score = 0;
+  const tokens = tokenize(candidate.headline);
+  
+  // 1. Section match (22% weight)
+  if (candidate.section === options.section || options.section === 'latest') {
+    score += 0.22;
+    reasonCodes.push('section-match');
+  }
+  
+  // 2. Query relevance (35% weight)
+  const queryTokens = tokenize(options.query);
+  if (queryTokens.length) {
+    const overlap = queryTokens.filter(token => tokens.includes(token)).length;
+    const queryScore = overlap / queryTokens.length;
+    score += queryScore * 0.35;
+    if (queryScore > 0) reasonCodes.push('query-match');
+  }
+  
+  // 3. Not recent duplicate (18% weight)
+  const duplicates = recentHeadlines.slice(0, DUPLICATE_WINDOW);  // Last 30
+  if (!duplicates.includes(candidate.headline)) {
+    score += 0.18;
+    reasonCodes.push('not-recent-duplicate');
+  }
+  
+  // 4. Novel structure (20% weight)
+  const nearWindow = recentHeadlines.slice(0, NEAR_DUPLICATE_WINDOW);  // Last 10
+  const maxOverlap = nearWindow.reduce((max, item) => 
+    Math.max(max, headlineTokenOverlap(candidate.headline, item)), 0
+  );
+  score += (1 - maxOverlap) * 0.2;
+  if (maxOverlap < 0.5) reasonCodes.push('novel-structure');
+  
+  // 5. Target length (15% weight)
+  const length = candidate.headline.length;
+  if (length >= MIN_LENGTH && length <= TARGET_MAX_LENGTH) {  // 45-110 chars
+    score += 0.15;
+    reasonCodes.push('target-length');
+  } else if (length <= HARD_MAX_LENGTH) {  // 140 chars
+    score += 0.07;
+  }
+  
+  // 6. Tone safety (10% weight)
+  if (looksSafeTone(candidate.headline)) {
+    score += 0.1;
+    reasonCodes.push('tone-safe');
+  }
+  
+  return {
+    score: Math.max(0, Math.min(1, score)),  // Clamp to 0-1
+    reasonCodes
+  };
+}
+```
+
+**Weight breakdown:**
+- Query relevance: 35%
+- Section match: 22%
+- Novel structure: 20%
+- Not recent duplicate: 18%
+- Target length: 15%
+- Tone safety: 10%
+
+### Selection Logic
+
+From `llm.js:287-310`, pick best candidate:
+
+```javascript
+function pickBestCandidate(candidates, options, threshold) {
+  const recent = recentEntries.map(entry => entry.headline);
+  const excluded = new Set((options.exclude || []).map(value => 
+    normalizeText(value).toLowerCase()
+  ));
+  
+  const scored = candidates
+    .filter(candidate => {
+      const normalized = normalizeText(candidate.headline).toLowerCase();
+      if (!normalized || normalized.length > HARD_MAX_LENGTH) return false;
+      if (excluded.has(normalized)) return false;
+      if (recent.slice(0, DUPLICATE_WINDOW).includes(candidate.headline)) return false;
+      return true;
+    })
+    .map(candidate => {
+      const result = scoreCandidate(candidate, options, recent);
+      return {
+        ...candidate,
+        confidence: result.score,
+        reasonCodes: result.reasonCodes
+      };
+    })
+    .sort((a, b) => b.confidence - a.confidence);  // Highest first
+  
+  return scored.find(candidate => candidate.confidence >= threshold) || null;
+}
+```
+
+**Two-pass selection:**
+
+From `llm.js:337-348`, try high threshold first:
+
+```javascript
+const runGeneration = () => {
+  const candidates = buildCandidates(request, rng);
+  
+  let picked = pickBestCandidate(candidates, request, 0.52);  // High threshold
+  if (!picked) {
+    picked = pickBestCandidate(candidates, request, 0.42);  // Lower threshold
+  }
+  
+  if (!picked) {
+    const error = new Error('v2-no-eligible-candidate');
+    error.code = 'NO_ELIGIBLE_CANDIDATE';
+    throw error;  // App falls back to curated headlines
+  }
+  
+  // ...
+};
+```
+
+## Quality Guardrails
+
+### Length Constraints
+
+From `llm.js:11-13`, enforced limits:
+
+```javascript
+const MIN_LENGTH = 45;
+const TARGET_MAX_LENGTH = 110;
+const HARD_MAX_LENGTH = 140;
+```
+
+From `llm.js:146-153`, clamping function:
+
+```javascript
+function clampHeadlineLength(text) {
+  const normalized = normalizeText(text);
+  if (normalized.length <= HARD_MAX_LENGTH) return normalized;
+  
+  const clipped = normalized.slice(0, HARD_MAX_LENGTH + 1);
+  const boundary = Math.max(
+    clipped.lastIndexOf('; '),
+    clipped.lastIndexOf(', '),
+    clipped.lastIndexOf(' ')
+  );
+  const safe = boundary > 60 ? clipped.slice(0, boundary) : clipped.slice(0, HARD_MAX_LENGTH);
+  return safe.trim();
+}
+```
+
+**Behavior:**
+- Under 140 chars: return as-is
+- Over 140 chars: clip at last sentence/phrase boundary after 60 chars
+- No boundary found: hard cut at 140 chars
+
+### Duplicate Suppression
+
+From `llm.js:9-10`, two windows:
+
+```javascript
+const DUPLICATE_WINDOW = 30;       // Exact duplicates in last 30
+const NEAR_DUPLICATE_WINDOW = 10;  // Token overlap in last 10
+```
+
+**Exact duplicates:** Rejected if headline text matches any of last 30.
+
+**Near duplicates:** From `llm.js:171-180`, token overlap scoring:
+
+```javascript
+function headlineTokenOverlap(left, right) {
+  const a = new Set(tokenize(left));
+  const b = new Set(tokenize(right));
+  if (!a.size || !b.size) return 0;
+  
+  let intersection = 0;
+  a.forEach(token => {
+    if (b.has(token)) intersection += 1;
+  });
+  
+  return intersection / Math.max(a.size, b.size);  // Jaccard similarity
+}
+```
+
+High overlap (>0.5) with last 10 headlines reduces novelty score.
+
+### Tone Safety
+
+From `llm.js:25-26`, harassment terms are blocked:
+
+```javascript
+const HARASSMENT_TERMS = ['idiot', 'moron', 'stupid', 'hate', 'loser'];
+
+function looksSafeTone(headline) {
+  const normalized = headline.toLowerCase();
+  return !HARASSMENT_TERMS.some(term => normalized.includes(term));
+}
+```
+
+**Goal:** Preserve absurd-news satire while avoiding personal attacks.
+
+## Recent Headline Cache
+
+### Storage Format
+
+From `llm.js:7-8`, cache parameters:
+
+```javascript
+const RECENT_STORAGE_KEY = 'tinyLlmV2Recent';
+const MAX_RECENT_STORAGE = 60;  // Keep last 60 generated headlines
+```
+
+Stored as array:
+
+```javascript
+[
+  {
+    headline: "Breaking: Influencer announces cryptocurrency...",
+    generatedAt: "2026-03-03T14:32:18.234Z",
+    section: "culture"
+  },
+  // ... up to 60 entries
+]
+```
+
+### Load and Migrate
+
+From `llm.js:50-71`, loads with legacy migration:
+
+```javascript
+function loadRecentEntries() {
+  if (!canUseLocalStorage()) return [];
+  
+  // Try v2 format first
+  const v2Stored = safeJsonParse(localStorage.getItem(RECENT_STORAGE_KEY), []);
+  if (Array.isArray(v2Stored) && v2Stored.length > 0) {
+    return v2Stored
+      .filter(entry => entry && typeof entry.headline === 'string' && entry.headline.trim())
+      .slice(0, MAX_RECENT_STORAGE);
+  }
+  
+  // Migrate from v1 format (array of strings)
+  const legacyStored = safeJsonParse(localStorage.getItem(LEGACY_RECENT_STORAGE_KEY), []);
+  if (!Array.isArray(legacyStored) || legacyStored.length === 0) return [];
+  
+  const nowIso = new Date().toISOString();
+  const migrated = legacyStored
+    .filter(Boolean)
+    .slice(0, MAX_RECENT_STORAGE)
+    .map(headline => ({ headline, generatedAt: nowIso, section: 'latest' }));
+  
+  persistRecentEntries(migrated);  // Save in new format
+  return migrated;
+}
+```
+
+### Add Entry
+
+From `llm.js:84-96`, append to cache:
+
+```javascript
+function addRecentEntry(result) {
+  recentEntries.unshift({  // Add to front
+    headline: result.headline,
+    generatedAt: result.generatedAt,
+    section: result.section
+  });
+  
+  if (recentEntries.length > MAX_RECENT_STORAGE) {
+    recentEntries.length = MAX_RECENT_STORAGE;  // Trim to limit
+  }
+  
+  persistRecentEntries(recentEntries);
+}
+```
+
+## Async Generation
+
+### Simulated Latency
+
+From `llm.js:5`, realistic timing:
+
+```javascript
+const GENERATION_DELAY_RANGE_MS = { min: 280, max: 720 };
+```
+
+From `llm.js:312-324`, delay promise:
+
+```javascript
+function resolveAfterDelay(task, rng) {
+  const { min, max } = GENERATION_DELAY_RANGE_MS;
+  const delay = min + Math.floor(getRandom(rng) * (max - min + 1));
+  
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      try {
+        resolve(task());
+      } catch (error) {
+        reject(error);
+      }
+    }, delay);
+  });
+}
+```
+
+### Timeout Handling
+
+From `llm.js:4`, hard timeout:
+
+```javascript
+const TINY_LLM_TIMEOUT_MS = 1800;  // 1.8 seconds
+```
+
+From `llm.js:368-388`, race against timeout:
+
+```javascript
+const generation = resolveAfterDelay(runGeneration, rng);
+const timeout = new Promise((_, reject) => {
+  setTimeout(() => {
+    const error = new Error('Generation timed out');
+    error.code = 'GENERATION_TIMEOUT';
+    reject(error);
+  }, TINY_LLM_TIMEOUT_MS);
+});
+
+try {
+  return await Promise.race([generation, timeout]);
+} catch (error) {
+  lastDiagnostics = {
+    backend: 'v2-heuristic',
+    timeoutMs: TINY_LLM_TIMEOUT_MS,
+    fallback: error?.code || error?.message || 'generation-error',
+    warm: true,
+    reasonCodes: []
+  };
+  throw error;  // App catches and uses curated headlines
+}
+```
+
+**On timeout or error:** App falls back to curated headline shuffle.
+
+## API Interface
+
+### Public API
+
+From `llm.js:399-402`, exposed globally:
+
+```javascript
+if (typeof window !== 'undefined') {
+  window.tinyLlmClient = tinyLlmClient;
+  window.tinyLlmClientV2 = tinyLlmClient;  // Alias for compatibility
+}
+```
+
+### generateHeadline(options)
+
+**Parameters:**
+
+```javascript
+await tinyLlmClient.generateHeadline({
+  section: 'tech',           // 'latest' | 'world' | 'culture' | 'tech' | 'oddities'
+  source: 'generated',       // 'any' | 'generated' | 'curated' (unused by generator)
+  query: 'AI chatbot',       // Optional: soft constraint for relevance
+  exclude: ['headline 1'],   // Optional: headlines to avoid
+  seed: 12345                // Optional: deterministic seed for testing
+});
+```
+
+**Returns:**
+
+```javascript
+{
+  headline: "Local desk startup founder reveals AI chatbot while tech watchers refresh dashboards; trending",
+  section: "tech",
+  confidence: 0.78,
+  reasonCodes: ['section-match', 'query-match', 'novel-structure', 'target-length', 'tone-safe'],
+  generatedAt: "2026-03-03T14:32:18.234Z"
+}
+```
+
+**Throws:**
+- `NO_ELIGIBLE_CANDIDATE` - No candidate met threshold
+- `GENERATION_TIMEOUT` - Exceeded 1.8 second timeout
+
+### getLastDiagnostics()
+
+From `llm.js:393-395`, debugging info:
+
+```javascript
+const diagnostics = tinyLlmClient.getLastDiagnostics();
+// → {
+//   backend: 'v2-heuristic',
+//   timeoutMs: 1800,
+//   fallback: null,
+//   warm: true,
+//   reasonCodes: ['section-match', 'query-match', 'novel-structure']
+// }
+```
+
+## Progressive Enhancement
+
+### Modern APIs (Optional)
+
+From `llm.js:108-136`, feature detection:
+
+```javascript
+// Better randomization
+if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+  // Use crypto.getRandomValues()
+} else {
+  // Fall back to Math.random()
+}
+
+// Better tokenization
+if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+  const segmenter = new Intl.Segmenter('en', { granularity: 'word' });
+  // Use Intl.Segmenter for word boundaries
+} else {
+  // Fall back to regex split
+  return normalized.split(/[^a-z0-9]+/).filter(Boolean);
+}
+```
+
+### Compatibility
+
+- **Minimum:** ES6 (Promises, Arrow functions, Template literals)
+- **Enhanced:** Crypto API, Intl.Segmenter
+- **Storage:** localStorage (gracefully degrades if unavailable)
+
+## Integration with App
+
+From `modules/app.js`, generation is triggered:
+
+```javascript
+async handleNext() {
+  const shouldGenerate = this.filters.source === 'generated' && this.isGeneratorAvailable();
+  
+  if (shouldGenerate) {
+    try {
+      const result = await window.tinyLlmClient.generateHeadline({
+        section: this.filters.section,
+        query: this.filters.query,
+        exclude: this.getRecentHeadlines()
+      });
+      
+      // Add to generated headlines
+      this.state.generatedHeadlines.push(result.headline);
+      this.headlines.push(result.headline);
+      const newIndex = this.headlines.length - 1;
+      
+      this.navigateToIndex(newIndex);
+    } catch (error) {
+      // Fall back to curated shuffle
+      this.shuffleCuratedHeadline();
+    }
+  } else {
+    this.shuffleCuratedHeadline();
+  }
+}
+```
+
+## Performance
+
+**Typical generation:**
+- Candidate synthesis: under 10ms
+- Scoring: under 5ms
+- Simulated delay: 280-720ms (artificial for UX)
+- **Total: ~300-730ms**
+
+**No blocking:** Generation runs in Promise, UI remains responsive.
+
+## Next Steps
+
+- [Architecture Overview](/architecture/overview) - High-level system design
+- [Module System](/architecture/modules) - Detailed module responsibilities
+- [State Management](/architecture/state-management) - Persistence and caching

@@ -1,0 +1,182 @@
+---
+title: Agent Interface Overview
+description: Browser-side tool interface for programmatic control of Neckass Headlines
+---
+
+## Overview
+
+The Neckass Headlines agent interface is a lightweight browser-side API exposed at `window.Neckass.agent` that enables browser automation tools and agentic LLM runtimes to control the headline generator programmatically without direct UI interaction.
+
+## Initialization
+
+The agent interface is automatically created after the app initializes. It is available at:
+
+```javascript
+window.Neckass.agent
+```
+
+## Basic Usage
+
+All agent methods are called through the `call()` function:
+
+```javascript
+const result = await window.Neckass.agent.call('method_name', args);
+```
+
+### Example: Get Current State
+
+```javascript
+const state = await window.Neckass.agent.call('get_state');
+console.log(state);
+// {
+//   index: 42,
+//   identifier: "curated-42",
+//   headline: "Local Cat Elected Mayor After Promising Tuna Reform",
+//   url: "https://example.com/?headline=curated-42",
+//   filters: { section: 'latest', query: '', source: 'auto' },
+//   poolSize: 150,
+//   totalHeadlines: 150,
+//   generatorAvailable: true
+// }
+```
+
+### Example: Shuffle Headlines
+
+```javascript
+const next = await window.Neckass.agent.call('shuffle');
+console.log(next.headline);
+// "Breaking: Scientists Discover Coffee Actually Made of Dreams"
+```
+
+## Available Methods
+
+The agent interface provides eight core methods:
+
+<CardGroup cols={2}>
+  <Card title="get_state" icon="circle-info" href="/api/get-state">
+    Retrieve current app state and headline information
+  </Card>
+  <Card title="shuffle" icon="shuffle" href="/api/shuffle">
+    Generate or select a new random headline
+  </Card>
+  <Card title="previous" icon="arrow-left" href="/api/previous">
+    Navigate to the previous headline in history
+  </Card>
+  <Card title="generate" icon="wand-magic-sparkles" href="/api/generate">
+    Force generation of a new headline using the tiny model
+  </Card>
+  <Card title="set_filters" icon="filter" href="/api/filters">
+    Apply section, query, or source filters
+  </Card>
+  <Card title="clear_filters" icon="filter-circle-xmark" href="/api/filters">
+    Remove all active filters
+  </Card>
+  <Card title="select_headline" icon="hand-pointer" href="/api/select-headline">
+    Jump to a specific headline by identifier
+  </Card>
+  <Card title="list_headlines" icon="list" href="/api/list-headlines">
+    Retrieve a paginated list of available headlines
+  </Card>
+</CardGroup>
+
+## Interface Properties
+
+### version
+
+The current version of the agent interface.
+
+```javascript
+const version = window.Neckass.agent.version;
+console.log(version); // "1.0.0"
+```
+
+### listTools()
+
+Returns an array of all available tool names.
+
+```javascript
+const tools = window.Neckass.agent.listTools();
+console.log(tools);
+// ["get_state", "shuffle", "previous", "generate", "set_filters", "clear_filters", "select_headline", "list_headlines"]
+```
+
+## State Snapshot Structure
+
+Most methods return a state snapshot object with the following structure:
+
+<ResponseField name="index" type="number | null">
+  The current headline index in the headlines array, or null if no headline is active
+</ResponseField>
+
+<ResponseField name="identifier" type="string | null">
+  A stable identifier for the current headline (e.g., "curated-42" or "generated-5")
+</ResponseField>
+
+<ResponseField name="headline" type="string">
+  The current headline text
+</ResponseField>
+
+<ResponseField name="url" type="string | null">
+  The canonical URL for the current headline with query parameters
+</ResponseField>
+
+<ResponseField name="filters" type="object">
+  Active filter settings including section, query, and source
+</ResponseField>
+
+<ResponseField name="poolSize" type="number">
+  Number of headlines matching current filters
+</ResponseField>
+
+<ResponseField name="totalHeadlines" type="number">
+  Total number of headlines available (curated + generated)
+</ResponseField>
+
+<ResponseField name="generatorAvailable" type="boolean">
+  Whether the tiny model generator is available
+</ResponseField>
+
+## Error Handling
+
+The agent interface throws errors for invalid operations:
+
+```javascript
+try {
+  await window.Neckass.agent.call('unknown_method');
+} catch (error) {
+  console.error(error.message); // "Unknown tool: unknown_method"
+}
+
+try {
+  await window.Neckass.agent.call('select_headline', { identifier: 'invalid' });
+} catch (error) {
+  console.error(error.message); // "Headline was not found or did not match active filters."
+}
+```
+
+## Growth Event Tracking
+
+All agent method calls automatically trigger growth event tracking with the tool name:
+
+```javascript
+app.trackGrowthEvent('agent_call', { tool: 'shuffle' });
+```
+
+## Browser Compatibility
+
+The agent interface requires:
+
+- Modern browser with ES6+ support
+- Async/await support
+- LocalStorage for state persistence
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Read Method Documentation" icon="book" href="/api/get-state">
+    Explore detailed documentation for each method
+  </Card>
+  <Card title="View Features" icon="sparkles" href="/features/headline-generation">
+    Learn about headline generation and other features
+  </Card>
+</CardGroup>

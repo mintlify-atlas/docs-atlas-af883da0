@@ -1,0 +1,226 @@
+---
+title: Mock Front Page Export
+description: Export headlines as a mock newspaper front page image in PNG format
+---
+
+The mock front page export feature renders the current headline as a satirical newspaper layout and exports it as a PNG image.
+
+## Mock Front Page Layout
+
+The mock front page includes:
+
+- **Masthead**: "Neckass Daily" branding with current date
+- **Kicker**: "Breaking satire bulletin" label
+- **Headline**: The current featured headline in large type
+- **Deck**: "Satire from the digital city desk." subheading
+- **Dateline**: "Published 8:45 AM" timestamp
+- **Footer**: "neckass.com · humor desk" attribution
+
+```html
+<div id="mock-front" class="mock-front">
+  <div class="mock-masthead">
+    <span class="mock-title">Neckass Daily</span>
+    <span id="mock-date" class="mock-date">Loading...</span>
+  </div>
+  <p class="mock-kicker">Breaking satire bulletin</p>
+  <h3 id="mock-headline" class="mock-headline">Loading...</h3>
+  <p class="mock-deck">Satire from the digital city desk.</p>
+  <p id="feature-date" class="mock-dateline">Published 8:45 AM</p>
+  <p class="mock-footer">neckass.com · humor desk</p>
+</div>
+```
+
+<Tip>
+The mock front page layout updates automatically whenever the headline changes, so you always export the current content.
+</Tip>
+
+## Export Modes
+
+Two export actions are available:
+
+### Download Mock Front Page
+
+Downloads the mock front page as a PNG file to your device:
+
+```javascript
+// From modules/mock-export.js
+const downloadImage = async (message) => {
+  const dataUrl = await window.htmlToImage.toPng(elements.mockFrame, options);
+  const link = document.createElement('a');
+  link.download = 'neckass-front-page.png';
+  link.href = dataUrl;
+  link.click();
+  reportStatus(message);
+};
+```
+
+**Filename**: `neckass-front-page.png`
+
+### Copy Mock Front Page
+
+Copies the mock front page image to your clipboard for pasting into other apps:
+
+```javascript
+const blob = await window.htmlToImage.toBlob(elements.mockFrame, options);
+await navigator.clipboard.write([
+  new ClipboardItem({
+    [blob.type]: blob
+  })
+]);
+```
+
+<Note>
+If clipboard image copy is unavailable, the app automatically downloads the PNG and shows "Clipboard unavailable. Downloaded front page."
+</Note>
+
+## Export Pipeline
+
+The export process follows these steps:
+
+1. **Validation** - Checks that `htmlToImage` library and mock frame element exist
+2. **Status update** - Shows "Preparing export..." message
+3. **Button loading state** - Disables the clicked button
+4. **Bounds calculation** - Measures the mock front page element
+5. **Rendering** - Converts DOM to PNG using `html-to-image` library
+6. **Output** - Downloads or copies based on selected mode
+7. **Status feedback** - Shows success or error message
+
+## Rendering Options
+
+The export uses optimized rendering settings:
+
+```javascript
+const options = {
+  pixelRatio: Math.min(3, Math.max(2, (window.devicePixelRatio || 1) * 1.25)),
+  backgroundColor: getComputedStyle(document.body).getPropertyValue('--bg')?.trim(),
+  cacheBust: true,
+  width: Math.max(1, Math.round(bounds.width)),
+  height: Math.max(1, Math.round(bounds.height))
+};
+```
+
+### Pixel Ratio
+
+The export calculates pixel ratio dynamically:
+
+- **Base**: Uses device pixel ratio (1x on standard displays, 2x on Retina)
+- **Multiplier**: Applies 1.25x scaling for sharper output
+- **Clamp**: Limits to 2x-3x range for performance
+
+<Tip>
+The dynamic pixel ratio ensures crisp exports on high-DPI displays without excessive file sizes.
+</Tip>
+
+### Background Color
+
+The export reads the CSS custom property `--bg` from the document body to match the site's background color in the exported image.
+
+## Status Messages
+
+Export status messages appear below the action buttons:
+
+| Status | Description |
+|--------|-------------|
+| "Preparing export..." | Rendering in progress |
+| "Downloaded front page." | Download succeeded |
+| "Copied front page to clipboard." | Clipboard copy succeeded |
+| "Clipboard unavailable. Downloaded front page." | Clipboard failed, fell back to download |
+| "Export unavailable. Reload and try again." | Missing dependency (download mode) |
+| "Export unavailable. Reload, then try Download mock front page." | Missing dependency (copy mode) |
+| "Export failed. Please try again." | Rendering error |
+
+<Warning>
+If the `html-to-image` library fails to load, all export functionality will be unavailable. Reload the page to retry loading the dependency.
+</Warning>
+
+## Dependency
+
+Mock export relies on the `html-to-image` library:
+
+```html
+<script src="vendor/html-to-image.js"></script>
+```
+
+This library is loaded before the app scripts and provides:
+
+- `htmlToImage.toPng()` - Converts DOM element to PNG data URL
+- `htmlToImage.toBlob()` - Converts DOM element to Blob for clipboard
+
+## Browser Compatibility
+
+### Download Support
+
+Download functionality works in all modern browsers using:
+
+```javascript
+const link = document.createElement('a');
+link.download = 'neckass-front-page.png';
+link.href = dataUrl;
+link.click();
+```
+
+### Clipboard Image Support
+
+Clipboard image copy requires:
+
+- `navigator.clipboard.write()` support
+- `ClipboardItem` constructor
+- Secure context (HTTPS or localhost)
+
+**Supported**: Chrome 76+, Edge 79+, Safari 13.1+
+
+**Unsupported**: Firefox (as of 2026), older browsers
+
+<Tip>
+The automatic fallback to download ensures the feature works in all browsers, even those without clipboard image support.
+</Tip>
+
+## Accessibility
+
+Export buttons include:
+
+- Descriptive button labels with icons
+- Small helper text explaining each action
+- `role="status"` and `aria-live="polite"` on status messages
+- Loading states that disable buttons during operations
+
+```html
+<button id="download-mock" class="ghost" type="button">
+  <span class="button-main-label">
+    <img class="button-icon" src="icons/download.svg" alt="" aria-hidden="true">
+    <span>Download mock front page</span>
+  </span>
+  <small>Save PNG to your device.</small>
+</button>
+```
+
+## Responsive Behavior
+
+On mobile screens (≤600px):
+
+- Export card appears in the main column (not a sticky rail)
+- Quick-jump button provides fast access from the headline section
+- Mock front page scales to fit smaller viewports
+
+## Error Handling
+
+The export system handles errors at multiple levels:
+
+1. **Missing library**: Shows "Export unavailable" message
+2. **Rendering failure**: Shows "Export failed" message
+3. **Clipboard rejection**: Falls back to download automatically
+4. **Button re-enabling**: Always restores button state in `finally` block
+
+```javascript
+try {
+  // ... export logic ...
+} catch (error) {
+  reportStatus('Export failed. Please try again.', true);
+} finally {
+  setButtonLoading(exportButton, false);
+}
+```
+
+<Note>
+The export system never leaves buttons in a disabled state, even if errors occur.
+</Note>

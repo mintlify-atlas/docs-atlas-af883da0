@@ -1,0 +1,400 @@
+---
+title: Testing
+description: Testing approach and Playwright smoke tests for Neckass Headlines
+---
+
+## Testing Philosophy
+
+Neckass Headlines uses an **optional smoke test suite** to validate critical flows without changing the zero-build runtime model. The app remains fully functional without any test infrastructure.
+
+## Why "Smoke Tests"?
+
+Smoke tests verify that the core functionality works:
+- The app loads and initializes
+- Critical user flows complete successfully
+- No obvious breaking bugs in key features
+
+They don't aim for comprehensive coverage - just confidence that the essential paths work.
+
+## Test Technology
+
+The project uses **Playwright** for browser automation:
+
+- Cross-browser testing (Chromium, Firefox, WebKit)
+- Real browser environment (not JSDOM)
+- Supports modern JavaScript and ES modules
+- Matches actual user interactions
+
+## Installation
+
+Install the test dependencies:
+
+<Steps>
+  <Step title="Install dependencies">
+    ```bash
+    npm install
+    ```
+    This installs `@playwright/test` as a dev dependency.
+  </Step>
+
+  <Step title="Verify installation">
+    ```bash
+    npx playwright --version
+    ```
+  </Step>
+</Steps>
+
+## Running Tests
+
+### Headless Mode (Default)
+
+Run tests without visible browser:
+
+```bash
+npm run test:smoke
+```
+
+This is the default mode, useful for CI/CD and quick validation.
+
+### Headed Mode
+
+Run tests with visible browser for debugging:
+
+```bash
+npm run test:smoke:headed
+```
+
+Watch the browser interact with your app in real-time.
+
+### Direct Playwright Commands
+
+You can also use Playwright directly:
+
+```bash
+# Run all tests
+npx playwright test
+
+# Run specific test file
+npx playwright test tests/smoke.spec.mjs
+
+# Run in debug mode
+npx playwright test --debug
+
+# Run in UI mode (interactive)
+npx playwright test --ui
+```
+
+## Playwright Configuration
+
+From `playwright.config.mjs`:
+
+```javascript
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './tests',
+  timeout: 30_000,
+  use: {
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8001/',
+    headless: true
+  },
+  webServer: {
+    command: 'python -m http.server 8001 --directory .',
+    url: 'http://127.0.0.1:8001/',
+    reuseExistingServer: true,
+    timeout: 10_000
+  }
+});
+```
+
+**Key settings:**
+
+- **testDir**: Tests located in `./tests` directory
+- **timeout**: 30 second timeout per test
+- **baseURL**: Defaults to `http://127.0.0.1:8001/`
+- **webServer**: Automatically starts Python HTTP server before tests
+- **reuseExistingServer**: Won't fail if server already running
+
+## Test Coverage
+
+The smoke test suite validates these critical flows:
+
+### 1. Shuffle and URL Restoration
+
+**What it tests:**
+- Shuffle button updates headline
+- New headline differs from original
+- URL contains `headline=` parameter
+- Opening URL restores exact headline
+
+```javascript
+test('shuffle updates headline and URL can restore it', async ({ page }) => {
+  await page.goto(BASE_URL);
+  
+  const original = await headlineText(page);
+  await page.click('#next-btn');
+  const shuffled = await headlineText(page);
+  
+  expect(shuffled).not.toEqual(original);
+  expect(page.url()).toContain('headline=');
+  
+  // Open URL in new page
+  const restored = await page.context().newPage();
+  await restored.goto(page.url());
+  await expect(restored.locator('#headline')).toHaveText(shuffled);
+});
+```
+
+### 2. Share Link Integration
+
+**What it tests:**
+- Share links include active headline text
+- URL encoding works correctly
+
+```javascript
+test('share links include active headline text', async ({ page }) => {
+  await page.goto(BASE_URL);
+  
+  const headline = await headlineText(page);
+  const twitterHref = await page.locator('#twitter-share').getAttribute('href');
+  
+  expect(decodeURIComponent(twitterHref)).toContain(headline);
+});
+```
+
+### 3. Security: XSS Prevention
+
+**What it tests:**
+- URL parameters rendered as plain text
+- No DOM injection from user input
+- HTML tags in input displayed literally
+
+```javascript
+test('URL headline input is rendered as plain text without DOM injection', async ({ page }) => {
+  const payload = encodeURIComponent('<img src=x onerror=alert(1)> Breaking');
+  await page.goto(`${BASE_URL}?headline=${payload}&source=generated`);
+  
+  const headline = await headlineText(page);
+  expect(headline).toContain('<img src=x onerror=alert(1)> Breaking');
+  
+  // Verify no actual img element created
+  await expect(page.locator('#headline img')).toHaveCount(0);
+  await expect(page.locator('#headline [onerror]')).toHaveCount(0);
+});
+```
+
+### 4. Export Controls
+
+**What it tests:**
+- Export buttons are enabled
+- Mock front-page actions available
+
+```javascript
+test('export actions are available for current headline', async ({ page }) => {
+  await page.goto(BASE_URL);
+  
+  await expect(page.locator('#download-mock')).toBeEnabled();
+  await expect(page.locator('#copy-mock')).toBeEnabled();
+});
+```
+
+### 5. Agent Interface
+
+**What it tests:**
+- `window.Neckass.agent` API is available
+- Tool calls return expected data shapes
+- Shuffle, state, and list operations work
+
+```javascript
+test('agent interface exposes callable tools', async ({ page }) => {
+  await page.goto(BASE_URL);
+  
+  const initial = await page.evaluate(async () => 
+    window.Neckass.agent.call('get_state')
+  );
+  expect(initial.headline).toBeTruthy();
+  
+  const shuffled = await page.evaluate(async () => 
+    window.Neckass.agent.call('shuffle')
+  );
+  expect(shuffled.identifier).toBeTruthy();
+  
+  const listed = await page.evaluate(async () => 
+    window.Neckass.agent.call('list_headlines', { limit: 5 })
+  );
+  expect(Array.isArray(listed.items)).toBeTruthy();
+});
+```
+
+### 6. URL Parameter Preservation
+
+**What it tests:**
+- Filter parameters preserved in URLs
+- State restoration from URL params
+
+```javascript
+test('history URL helpers preserve supported filters and headline params', async ({ page }) => {
+  await page.goto(`${BASE_URL}?section=tech&q=wifi&source=curated`);
+  
+  const result = await page.evaluate(() => {
+    const { getUrlState } = window.Neckass;
+    return getUrlState();
+  });
+  
+  expect(result.section).toBe('tech');
+  expect(result.query).toBe('wifi');
+});
+```
+
+### 7. Filter Logic
+
+**What it tests:**
+- Filter helpers return correct eligible indexes
+- JSON parse fallback handles invalid input
+
+## Writing New Tests
+
+### Test Structure
+
+```javascript
+import { test, expect } from '@playwright/test';
+
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8001/';
+
+test.describe('Feature name', () => {
+  test('specific behavior', async ({ page }) => {
+    // Navigate to page
+    await page.goto(BASE_URL);
+    
+    // Interact with elements
+    await page.click('#button-id');
+    
+    // Make assertions
+    await expect(page.locator('#element')).toHaveText('Expected');
+  });
+});
+```
+
+### Helper Functions
+
+Create helpers for common operations:
+
+```javascript
+async function headlineText(page) {
+  return (await page.locator('#headline').innerText()).trim();
+}
+```
+
+### Best Practices
+
+1. **Wait for load states**: Ensure elements exist before interacting
+   ```javascript
+   await expect(page.locator('#headline')).not.toHaveText('Loading...');
+   ```
+
+2. **Use appropriate selectors**: Prefer IDs and data attributes
+   ```javascript
+   page.locator('#next-btn')  // Good
+   page.locator('button')     // Too generic
+   ```
+
+3. **Test user-visible behavior**: Don't test implementation details
+   ```javascript
+   // Good: Test what user sees
+   await expect(page.locator('#headline')).toHaveText(expected);
+   
+   // Avoid: Test internal state
+   const internalVar = await page.evaluate(() => window.someInternalVar);
+   ```
+
+4. **Keep tests independent**: Each test should work in isolation
+
+## Debugging Failed Tests
+
+### Run in Headed Mode
+
+```bash
+npm run test:smoke:headed
+```
+
+### Use Debug Mode
+
+```bash
+npx playwright test --debug
+```
+
+This opens Playwright Inspector for step-by-step debugging.
+
+### Add Console Logs
+
+```javascript
+test('my test', async ({ page }) => {
+  page.on('console', msg => console.log('Browser:', msg.text()));
+  // ... test code
+});
+```
+
+### Take Screenshots
+
+```javascript
+test('my test', async ({ page }) => {
+  await page.screenshot({ path: 'debug.png' });
+});
+```
+
+### Pause Execution
+
+```javascript
+test('my test', async ({ page }) => {
+  await page.pause(); // Opens inspector
+});
+```
+
+## CI/CD Integration
+
+Run tests in continuous integration:
+
+```yaml
+# GitHub Actions example
+- name: Install dependencies
+  run: npm install
+
+- name: Run smoke tests
+  run: npm run test:smoke
+```
+
+**Requirements:**
+- Python 3 available in CI environment (for HTTP server)
+- Node.js installed
+- Playwright browsers installed (automatic on first run)
+
+## Manual Testing Checklist
+
+Smoke tests complement (not replace) manual testing. Always verify:
+
+1. **Core flows**: Shuffle, previous, generate update headline
+2. **Actions**: Copy, share, export target active headline
+3. **State**: URL params restore state on reload
+4. **Edge cases**: Empty states, filter combinations
+5. **Keyboard nav**: Tab order, focus states, shortcuts
+6. **Responsive**: Layout at various viewport sizes
+7. **Accessibility**: Screen reader announcements, ARIA labels
+
+## Test Philosophy
+
+Remember:
+
+- **Smoke tests are optional** - the app works without them
+- **Focus on critical paths** - not comprehensive coverage
+- **Test user behavior** - not implementation details
+- **Keep tests fast** - under 30 seconds total
+- **Fail clearly** - descriptive error messages
+
+The goal is confidence in core functionality, not perfect coverage.
+
+## Resources
+
+- [Playwright Documentation](https://playwright.dev)
+- [Development Setup](/development/setup)
+- [Contributing Guidelines](/development/contributing)
+- `DEVELOPMENT.md` - Manual validation checklist in repo

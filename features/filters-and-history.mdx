@@ -1,0 +1,318 @@
+---
+title: Filters and History
+description: Filter headlines by section, source, and search query, and track navigation history
+---
+
+Neckass Headlines provides filtering and history features to help you navigate and find specific types of headlines.
+
+## Filter System
+
+### Available Filters
+
+The filter system supports five filter types:
+
+```javascript
+const DEFAULT_FILTERS = Object.freeze({
+  section: 'latest',   // latest, world, culture, tech, oddities
+  query: '',           // Free-text search
+  source: 'auto',      // auto, generated, curated
+  panel: 'recent',     // recent, favorites, generated
+  layout: 'standard'   // standard, square, story
+});
+```
+
+### Section Filter
+
+Sections classify headlines by topic:
+
+| Section | Description | Example Keywords |
+|---------|-------------|------------------|
+| **Latest** | Default, all headlines | (all) |
+| **World** | Global and federal news | canada, federal, global, climate, ambassador, space |
+| **Culture** | Social media and entertainment | tiktok, instagram, spotify, book, newsletter, fashion |
+| **Tech** | Technology and apps | app, wifi, ai, bot, algorithm, podcast, discord |
+| **Oddities** | Weird and unusual | unhinged, manifest, ghost, meme, cursed, zodiac |
+
+#### Headline Classification
+
+Headlines are automatically classified based on content tokens:
+
+```javascript
+function classifyHeadline(headlineText) {
+  const normalized = headlineText.toLowerCase();
+  const patterns = {
+    tech: ['app', 'wifi', 'ai', 'bot', 'algorithm', 'discord', 'zoom'],
+    culture: ['tiktok', 'instagram', 'spotify', 'newsletter', 'fashion'],
+    world: ['canada', 'federal', 'global', 'climate', 'space', 'crypto'],
+    oddities: ['unhinged', 'manifest', 'ghost', 'meme', 'weird', 'cursed']
+  };
+  
+  // Returns first matching section or 'latest'
+}
+```
+
+<Tip>
+The generator uses section filters to weight phrase pools, making generated headlines more relevant to the selected section.
+</Tip>
+
+### Source Filter
+
+Control which headline sources are eligible:
+
+- **auto** (default): Uses both curated and generated headlines
+- **generated**: Only shows generated headlines (requires generator)
+- **curated**: Only shows pre-written curated headlines
+
+### Query Filter
+
+Free-text search filters headlines by substring match:
+
+```javascript
+const query = filters.query.trim().toLowerCase();
+if (query && !headlineText.toLowerCase().includes(query)) {
+  return false; // Headline not eligible
+}
+```
+
+<Note>
+Query matching is case-insensitive and matches any part of the headline text.
+</Note>
+
+## Filter Eligibility
+
+Headlines must pass all active filters to be eligible:
+
+```javascript
+function isIndexEligible(index, { headlines, baseHeadlineCount, filters, isValidHeadlineIndex }) {
+  if (!isValidHeadlineIndex(index, headlines.length)) return false;
+  
+  const headlineText = headlines[index];
+  const isGenerated = index >= baseHeadlineCount;
+  
+  // Check source filter
+  if (filters.source === 'curated' && isGenerated) return false;
+  if (filters.source === 'generated' && !isGenerated) return false;
+  
+  // Check section filter
+  if (filters.section !== 'latest') {
+    const assigned = classifyHeadline(headlineText);
+    if (assigned !== filters.section) return false;
+  }
+  
+  // Check query filter
+  if (filters.query) {
+    const query = filters.query.toLowerCase();
+    if (!headlineText.toLowerCase().includes(query)) return false;
+  }
+  
+  return true;
+}
+```
+
+## Filter Status Display
+
+The filter status row shows the active filter state:
+
+```html
+<div class="filter-reset" aria-live="polite">
+  <p id="filter-status" class="status-text" hidden></p>
+  <button id="clear-filters" class="ghost" type="button">Clear filters</button>
+</div>
+```
+
+### Status Messages
+
+- **"All headlines"** - No filters active
+- **"Section: Culture"** - Section filter active
+- **"Search: podcast"** - Query filter active
+- **"Source: Generated"** - Source filter active
+- **"Section: Tech · Search: discord"** - Multiple filters active
+
+### Clear Filters Button
+
+The **Clear filters** button:
+
+- Is hidden when no filters are active
+- Resets all filters to defaults
+- Refreshes the headline to match new filter state
+- Uses `aria-live="polite"` for screen reader announcements
+
+<Tip>
+Clearing filters automatically shuffles to a new headline from the now-expanded eligible set.
+</Tip>
+
+## Navigation History
+
+### History Stack
+
+The app maintains a navigation stack of viewed headlines:
+
+```javascript
+const navigationStack = [];
+
+// When shuffling to a new headline:
+navigationStack.push(newIndex);
+
+// When going back:
+if (navigationStack.length >= 2) {
+  navigationStack.pop(); // Remove current
+  const previousIndex = navigationStack[navigationStack.length - 1];
+  renderHeadline(previousIndex);
+}
+```
+
+### Previous Button
+
+The **Previous** button navigates backward through history:
+
+```javascript
+// From SPECIFICATIONS.md
+// Previous navigates back through the stored navigation stack
+// and removes the last index if you go backward.
+// It is disabled whenever the stack has fewer than two items
+// or while loading.
+```
+
+**Behavior**:
+
+- Disabled when stack has fewer than 2 items (no history)
+- Disabled during headline loading
+- Removes current headline from stack before navigating
+- Preserves forward navigation possibility
+
+<Warning>
+The Previous button only works for headlines viewed in the current session. It does not traverse browser history across page loads.
+</Warning>
+
+## Unique Headlines Counter
+
+The app tracks unique headlines viewed in the current session:
+
+```html
+<p class="counter">Headlines viewed: <span id="counter">0</span></p>
+```
+
+This counter:
+
+- Increments only for new headlines (not revisited ones)
+- Persists to localStorage as `uniqueHeadlines`
+- Resets on page refresh (session-based)
+- Appears in the Quick actions rail
+
+## URL State Persistence
+
+Filters and current headline persist to URL query parameters:
+
+```
+https://neckass.com/?headline=local-podcast-1&section=culture&q=podcast&source=auto
+```
+
+### URL Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|----------|
+| `headline` | Current headline identifier | (none) |
+| `section` | Section filter | latest |
+| `q` | Search query | (empty) |
+| `source` | Source filter | auto |
+| `panel` | Active panel | recent |
+| `layout` | Layout mode | standard |
+
+### History State
+
+The app uses the History API to enable browser back/forward:
+
+```javascript
+function updateHistoryState({ index, headlines, filters, navigationStack, replace = false }) {
+  const url = buildHeadlineUrl({ index, headlines, filters });
+  const state = {
+    headlineIndex: index,
+    navigationStack: [...navigationStack],
+    uniqueHeadlines: Array.from(uniqueHeadlines),
+    filters: { ...filters }
+  };
+  
+  if (replace) {
+    history.replaceState(state, '', url);
+  } else {
+    history.pushState(state, '', url);
+  }
+}
+```
+
+<Note>
+You can use browser back/forward buttons to navigate between headlines. The app restores the exact headline and filter state from history.
+</Note>
+
+## localStorage Persistence
+
+The app stores filter and history state in localStorage:
+
+```javascript
+const STORAGE_KEYS = {
+  navigationStack: 'navigationStack',
+  uniqueHeadlines: 'uniqueHeadlines',
+  generatedHeadlines: 'generatedHeadlines',
+  favoriteHeadlines: 'favoriteHeadlines',
+  headlineFilters: 'headlineFilters'
+};
+```
+
+### Backward Compatibility
+
+Legacy keys are supported for migration:
+
+- `headlinesViewed` → `uniqueHeadlines`
+- `viewedHeadlines` → `uniqueHeadlines`
+- `viewedStack` → `navigationStack`
+
+<Tip>
+The app sanitizes the navigation stack against the current headline count on load, removing any invalid indexes from previous sessions.
+</Tip>
+
+## Recent Headlines List
+
+The **Recent headlines** section displays your navigation history:
+
+```html
+<section class="history-card" aria-labelledby="recent-headlines-title">
+  <div class="history-header">
+    <h2 class="filter-label" id="recent-headlines-title">Recent headlines</h2>
+    <p class="counter counter-inline" id="history-count">0 items</p>
+  </div>
+  <ul class="headline-list" id="headline-list" aria-live="polite"></ul>
+</section>
+```
+
+This list:
+
+- Shows headlines in reverse chronological order (newest first)
+- Updates in real-time as you navigate
+- Is clickable to jump back to previous headlines
+- Uses `aria-live="polite"` for screen reader updates
+
+## Filter Sanitization
+
+Filters are validated and sanitized on load:
+
+```javascript
+function sanitizeFilters(filters = {}) {
+  const sanitized = { ...DEFAULT_FILTERS };
+  
+  if (filters.section && ALLOWED_SECTIONS.includes(filters.section)) {
+    sanitized.section = filters.section;
+  }
+  if (filters.source && ALLOWED_SOURCES.includes(filters.source)) {
+    sanitized.source = filters.source;
+  }
+  // ... similar for other filter types
+  
+  return sanitized;
+}
+```
+
+This prevents invalid filter values from URL manipulation or storage corruption.
+
+<Warning>
+If you set `source` to "generated" but the generator is unavailable, the app automatically falls back to `source: "auto"`.
+</Warning>

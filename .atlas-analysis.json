@@ -1,0 +1,90 @@
+{
+  "projectType": "frontend",
+  "projectName": "Neckass Headlines",
+  "projectDescription": "A privacy-first, static headline generator with curated prompts, optional on-device generation, and built-in share/export tools.",
+  "theme": "almond",
+  "primaryColor": "#dc6b3f",
+  "lightColor": "#f4a261",
+  "darkColor": "#4a7dff",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/headline-generation",
+              "features/copy-and-share",
+              "features/mock-export",
+              "features/filters-and-history",
+              "features/keyboard-navigation"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/modules",
+              "architecture/state-management",
+              "architecture/llm-client"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/setup",
+              "development/contributing",
+              "development/testing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Agent Interface",
+            "pages": [
+              "api/overview",
+              "api/get-state",
+              "api/shuffle",
+              "api/previous",
+              "api/generate",
+              "api/filters",
+              "api/select-headline",
+              "api/list-headlines"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Static-first architecture with no build pipeline",
+    "Privacy-focused on-device headline generation",
+    "One-click copy and social sharing",
+    "Mock front page export to PNG",
+    "Session persistence with localStorage",
+    "Browser agent interface for automation",
+    "Keyboard navigation support",
+    "Filter and search capabilities"
+  ],
+  "publicApiSurface": [
+    "window.Neckass.agent.call('get_state')",
+    "window.Neckass.agent.call('shuffle')",
+    "window.Neckass.agent.call('previous')",
+    "window.Neckass.agent.call('generate')",
+    "window.Neckass.agent.call('set_filters', params)",
+    "window.Neckass.agent.call('clear_filters')",
+    "window.Neckass.agent.call('select_headline', index)",
+    "window.Neckass.agent.call('list_headlines')"
+  ]
+}
